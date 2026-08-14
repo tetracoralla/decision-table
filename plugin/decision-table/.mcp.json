@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "decision_table": {
+      "command": "node",
+      "args": [
+        "./server/index.mjs"
+      ],
+      "cwd": "."
+    }
+  }
+}

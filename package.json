@@ -1,0 +1,60 @@
+{
+  "name": "@openadam/decision-table",
+  "version": "0.1.0",
+  "description": "Deterministic decision and constraint primitives for AI agents.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "decision-table": "dist/cli.js",
+    "decision-table-mcp": "dist/mcp.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run build:plugin",
+    "build:plugin": "esbuild src/mcp.ts --bundle --platform=node --target=node20 --format=esm --outfile=plugin/decision-table/server/index.mjs",
+    "check": "npm run typecheck && npm run test && npm run check:contracts && npm run check:plugin",
+    "check:contracts": "node scripts/check-contracts.mjs",
+    "check:plugin": "node scripts/check-plugin.mjs",
+    "precli": "npm run build",
+    "cli": "node dist/cli.js",
+    "premcp": "npm run build",
+    "mcp": "node dist/mcp.js",
+    "test": "npm run build && vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "decimal.js": "^10.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "test": "test"
+  },
+  "keywords": [],
+  "author": ""
+}

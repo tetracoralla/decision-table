@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "constraint",
+  "id": "email.marketing",
+  "version": "1.0.0",
+  "inputs": [
+    {
+      "path": "candidate.marketing",
+      "type": "boolean",
+      "required": true,
+      "nullable": false
+    },
+    {
+      "path": "facts.recipient_region",
+      "type": "string",
+      "required": true,
+      "nullable": false
+    },
+    {
+      "path": "facts.consent_marketing",
+      "type": "boolean",
+      "required": false,
+      "nullable": false
+    }
+  ],
+  "constraints": [
+    {
+      "id": "EU-MARKETING-CONSENT",
+      "severity": "hard",
+      "when": {
+        "op": "all",
+        "conditions": [
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "facts.recipient_region" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": "EU" }
+          },
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "candidate.marketing" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": true }
+          }
+        ]
+      },
+      "assert": {
+        "op": "compare",
+        "left": { "kind": "fact", "path": "facts.consent_marketing" },
+        "comparator": "eq",
+        "right": { "kind": "literal", "value": true }
+      },
+      "violation": {
+        "code": "MARKETING_CONSENT_REQUIRED",
+        "message": "EU marketing email requires recorded marketing consent.",
+        "field": "facts.consent_marketing"
+      },
+      "repairHints": [
+        {
+          "kind": "set_value",
+          "path": "candidate.marketing",
+          "value": false,
+          "message": "Send a non-marketing message instead, if that change is authorized."
+        },
+        {
+          "kind": "provide_input",
+          "path": "facts.consent_marketing",
+          "message": "Fetch current consent from the authorized consent system."
+        }
+      ]
+    }
+  ]
+}

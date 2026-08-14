@@ -1,0 +1,4 @@
+interface:
+  display_name: "Decision Table"
+  short_description: "Evaluate and check approved rules deterministically."
+  default_prompt: "Use $use-decision-table to evaluate or check this decision from explicit facts."

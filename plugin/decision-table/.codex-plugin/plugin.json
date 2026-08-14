@@ -1,0 +1,33 @@
+{
+  "name": "decision-table",
+  "version": "0.1.0",
+  "description": "Evaluate versioned business decisions and proposed actions with deterministic rules, missing-input semantics, and machine-actionable violations.",
+  "author": {
+    "name": "openAdam"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "decision-table",
+    "constraints",
+    "agent-tools",
+    "business-rules"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Decision Table",
+    "shortDescription": "Make deterministic decisions from explicit facts.",
+    "longDescription": "Decision Table gives Codex read-only tools for validating a versioned ruleset, evaluating a business decision, and checking a proposed action. A host-bound constraint.check_approved tool is added when the host supplies an approved ruleset identity; it remains a check because the caller supplies candidate data and facts. Results preserve unknown facts and report the exact ruleset version and fingerprint.",
+    "developerName": "openAdam",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Evaluate this decision from the supplied facts.",
+      "Validate this ruleset before I use it.",
+      "Check whether this proposed action satisfies the constraints.",
+      "Check this proposal against the host-approved constraints."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "decision",
+  "id": "invoice.payment",
+  "version": "1.0.0",
+  "inputs": [
+    {
+      "path": "customer_type",
+      "type": "string",
+      "required": true,
+      "nullable": false
+    },
+    {
+      "path": "contract_expired",
+      "type": "boolean",
+      "required": true,
+      "nullable": false
+    },
+    {
+      "path": "debt",
+      "type": "decimal",
+      "required": true,
+      "nullable": false,
+      "description": "Canonical decimal string in USD."
+    }
+  ],
+  "hitPolicy": "first",
+  "rules": [
+    {
+      "id": "PAY-LEGAL",
+      "when": {
+        "op": "all",
+        "conditions": [
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "customer_type" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": "enterprise" }
+          },
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "contract_expired" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": true }
+          },
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "debt" },
+            "comparator": "gt",
+            "right": { "kind": "literal", "value": "10000" }
+          }
+        ]
+      },
+      "then": {
+        "decision": "legal",
+        "explanation": {
+          "code": "LEGAL_ESCALATION",
+          "message": "Expired enterprise contracts with debt over 10000 require legal escalation."
+        }
+      }
+    },
+    {
+      "id": "PAY-COLLECTION",
+      "when": {
+        "op": "all",
+        "conditions": [
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "customer_type" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": "enterprise" }
+          },
+          {
+            "op": "compare",
+            "left": { "kind": "fact", "path": "contract_expired" },
+            "comparator": "eq",
+            "right": { "kind": "literal", "value": true }
+          }
+        ]
+      },
+      "then": {
+        "decision": "collection",
+        "explanation": {
+          "code": "COLLECTION_REQUIRED",
+          "message": "Expired enterprise contracts require collection."
+        }
+      }
+    },
+    {
+      "id": "PAY-NORMAL",
+      "when": {
+        "op": "compare",
+        "left": { "kind": "fact", "path": "contract_expired" },
+        "comparator": "eq",
+        "right": { "kind": "literal", "value": false }
+      },
+      "then": {
+        "decision": "normal"
+      }
+    }
+  ]
+}
