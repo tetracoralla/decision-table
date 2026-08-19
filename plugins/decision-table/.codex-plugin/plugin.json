@@ -1,6 +1,6 @@
 {
   "name": "decision-table",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Evaluate versioned business decisions and proposed actions with deterministic rules, missing-input semantics, and machine-actionable violations.",
   "author": {
     "name": "openAdam",
@@ -27,8 +27,7 @@
     "defaultPrompt": [
       "Evaluate this decision from the supplied facts.",
       "Validate this ruleset before I use it.",
-      "Check whether this proposed action satisfies the constraints.",
-      "Check this proposal against the host-approved constraints."
+      "Check whether this proposed action satisfies the constraints."
     ]
   },
   "mcpServers": "./.mcp.json"

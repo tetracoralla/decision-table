@@ -1,6 +1,6 @@
 {
   "name": "@openadam/decision-table",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Deterministic decision and constraint primitives for AI agents.",
   "type": "module",

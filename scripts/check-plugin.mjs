@@ -47,6 +47,11 @@ if (manifest.name !== basename(pluginRoot)) failures.push("plugin folder and man
 for (const field of ["version", "description", "license", "skills", "mcpServers"]) {
   if (!manifest[field]) failures.push(`plugin manifest is missing ${field}`);
 }
+if (!Array.isArray(manifest.interface?.defaultPrompt) || manifest.interface.defaultPrompt.length === 0) {
+  failures.push("plugin manifest must provide starter prompts");
+} else if (manifest.interface.defaultPrompt.length > 3) {
+  failures.push("plugin manifest supports at most three starter prompts");
+}
 if (manifest.skills !== "./skills/") failures.push("plugin skill path must be ./skills/");
 if (manifest.mcpServers !== "./.mcp.json") failures.push("plugin MCP path must be ./.mcp.json");
 const server = mcp.mcpServers?.decision_table;
