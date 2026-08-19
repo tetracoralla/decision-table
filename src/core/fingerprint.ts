@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import type { JsonValue, Ruleset, RulesetIdentity } from "../model/types.js";
 
@@ -20,8 +21,12 @@ export function canonicalJson(value: JsonValue): string {
   return JSON.stringify(sortValue(value));
 }
 
+export function sha256Hex(text: string): string {
+  return bytesToHex(sha256(utf8ToBytes(text)));
+}
+
 export function fingerprintRuleset(ruleset: Ruleset): string {
-  return createHash("sha256").update(canonicalJson(ruleset as unknown as JsonValue)).digest("hex");
+  return sha256Hex(canonicalJson(ruleset as unknown as JsonValue));
 }
 
 export function identifyRuleset(ruleset: Ruleset): RulesetIdentity {

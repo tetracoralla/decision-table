@@ -4,6 +4,9 @@ Decision Table is a deterministic decision and constraint primitive for AI
 agents. It moves bounded business judgments out of model reasoning and into a
 strict, versioned, executable IR.
 
+The product name and stable package, CLI, plugin, Skill, and MCP identifiers are
+recorded in [`docs/PRODUCT_IDENTITY.md`](docs/PRODUCT_IDENTITY.md).
+
 The first release provides:
 
 - `decision.evaluate`: evaluate facts with `first`, `unique`, `collect`, or
@@ -17,18 +20,41 @@ The first release provides:
   backdate;
 - one shared TypeScript core, a JSON CLI, and an MCP server plus Codex plugin.
 
-## Install and check
+## Install in Codex
+
+```sh
+codex plugin marketplace add tetracoralla/decision-table --ref main
+codex plugin add decision-table@decision-table
+```
+
+Start a new Codex task after installation so the Skill and MCP tools load from
+the installed plugin. No npm account, npm package, or source build is required;
+the plugin contains a prebuilt MCP server and only needs Node.js 20.19 or later
+on `PATH`.
+
+The repository root is the marketplace and `plugins/decision-table` is the
+installable plugin. See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for
+updates, removal, and verification.
+
+Use ordinary requests such as:
+
+- “Validate this decision ruleset before I use it.”
+- “Evaluate this ruleset with these facts.”
+- “Check whether this proposed action satisfies these constraints.”
+
+Decision Table is distributed from GitHub as a Codex plugin. The Node package
+in this repository is private and exists only for building, testing, and local
+library development; it is not published to npm.
+
+## Develop from source
 
 ```sh
 npm install
 npm run check
 ```
 
-The published npm package includes `plugin/decision-table`. To make the plugin
-available in Codex, place that directory in a configured local marketplace and
-install `decision-table` from that marketplace. During development, validate
-the source plugin with `npm run check:plugin`; after installing or updating it,
-start a new Codex task so the MCP tools are loaded from the new plugin process.
+For local plugin development, add this repository directory itself as a
+marketplace and validate the source plugin with `npm run check:plugin`.
 
 ## CLI
 

@@ -1,3 +1,4 @@
+import { utf8ToBytes } from "@noble/hashes/utils.js";
 import {
   ApprovedConstraintBindingSchema,
   ApprovedConstraintCheckRequestSchema,
@@ -52,7 +53,7 @@ function configurationError(message: string): never {
 function serializedByteLength(value: unknown): number | undefined {
   try {
     const serialized = JSON.stringify(value);
-    return serialized === undefined ? undefined : Buffer.byteLength(serialized);
+    return serialized === undefined ? undefined : utf8ToBytes(serialized).length;
   } catch {
     return undefined;
   }

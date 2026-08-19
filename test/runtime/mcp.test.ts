@@ -10,6 +10,9 @@ import { identifyRuleset } from "../../src/core/fingerprint.js";
 import type { ConstraintRuleset } from "../../src/model/types.js";
 
 const root = resolve(import.meta.dirname, "../..");
+const pluginRoot = process.env.DECISION_TABLE_PLUGIN_ROOT
+  ? resolve(process.env.DECISION_TABLE_PLUGIN_ROOT)
+  : resolve(root, "plugins/decision-table");
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));
@@ -22,8 +25,8 @@ describe("bundled MCP stdio runtime", () => {
     client = new Client({ name: "decision-table-test", version: "1.0.0" });
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [resolve(root, "plugin/decision-table/server/index.mjs")],
-      cwd: root,
+      args: [resolve(pluginRoot, "server/index.mjs")],
+      cwd: pluginRoot,
       stderr: "pipe",
     });
     await client.connect(transport);
@@ -47,7 +50,7 @@ describe("bundled MCP stdio runtime", () => {
   it("starts from an installed path that contains a symlink", async () => {
     const directory = mkdtempSync(join(tmpdir(), "decision-table-mcp-link-"));
     const linkedPlugin = join(directory, "decision-table");
-    symlinkSync(resolve(root, "plugin/decision-table"), linkedPlugin, "dir");
+    symlinkSync(pluginRoot, linkedPlugin, "dir");
     const linkedClient = new Client({ name: "decision-table-link-test", version: "1.0.0" });
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -193,8 +196,8 @@ describe("bundled MCP stdio runtime", () => {
     const enforcedClient = new Client({ name: "decision-table-enforcement-test", version: "1.0.0" });
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [resolve(root, "plugin/decision-table/server/index.mjs")],
-      cwd: root,
+      args: [resolve(pluginRoot, "server/index.mjs")],
+      cwd: pluginRoot,
       stderr: "pipe",
       env: {
         DECISION_TABLE_APPROVED_CONSTRAINT_JSON: JSON.stringify({

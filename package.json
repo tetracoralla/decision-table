@@ -1,11 +1,20 @@
 {
   "name": "@openadam/decision-table",
   "version": "0.1.0",
+  "private": true,
   "description": "Deterministic decision and constraint primitives for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetracoralla/decision-table.git"
+  },
+  "homepage": "https://github.com/tetracoralla/decision-table#readme",
+  "bugs": {
+    "url": "https://github.com/tetracoralla/decision-table/issues"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "bin": {
     "decision-table": "dist/cli.js",
@@ -17,15 +26,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist",
-    "plugin",
-    "README.md",
-    "LICENSE"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:plugin",
-    "build:plugin": "esbuild src/mcp.ts --bundle --platform=node --target=node20 --format=esm --outfile=plugin/decision-table/server/index.mjs",
+    "build:plugin": "esbuild src/mcp.ts --bundle --platform=node --target=node20 --format=esm --outfile=plugins/decision-table/server/index.mjs",
     "check": "npm run typecheck && npm run test && npm run check:contracts && npm run check:plugin",
     "check:contracts": "node scripts/check-contracts.mjs",
     "check:plugin": "node scripts/check-plugin.mjs",
@@ -39,6 +42,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
+    "@noble/hashes": "^2.3.0",
     "decimal.js": "^10.6.0",
     "zod": "^4.4.3"
   },
@@ -49,12 +53,14 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "example": "examples",
-    "test": "test"
-  },
-  "keywords": [],
-  "author": ""
+  "main": "./dist/index.js",
+  "keywords": [
+    "decision-table",
+    "business-rules",
+    "constraints",
+    "mcp",
+    "agent-tools",
+    "deterministic"
+  ],
+  "author": "openAdam"
 }

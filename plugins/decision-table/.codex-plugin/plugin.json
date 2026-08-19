@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "description": "Evaluate versioned business decisions and proposed actions with deterministic rules, missing-input semantics, and machine-actionable violations.",
   "author": {
-    "name": "openAdam"
+    "name": "openAdam",
+    "url": "https://github.com/tetracoralla"
   },
   "license": "Apache-2.0",
+  "repository": "https://github.com/tetracoralla/decision-table",
   "keywords": [
     "decision-table",
     "constraints",

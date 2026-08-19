@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const root = process.cwd();
-const pluginRoot = resolve(root, "plugin/decision-table");
+const pluginRoot = resolve(root, "plugins/decision-table");
 const manifestPath = resolve(pluginRoot, ".codex-plugin/plugin.json");
 const mcpPath = resolve(pluginRoot, ".mcp.json");
 const skillRoot = resolve(pluginRoot, "skills/use-decision-table");
@@ -21,6 +21,28 @@ function readJson(path, label) {
 
 const manifest = readJson(manifestPath, "plugin manifest");
 const mcp = readJson(mcpPath, "plugin MCP configuration");
+const marketplace = readJson(resolve(root, ".agents/plugins/marketplace.json"), "repository marketplace manifest");
+const marketplaceEntry = marketplace.plugins?.find((plugin) => plugin.name === manifest.name);
+if (!marketplaceEntry) failures.push("marketplace manifest does not list the plugin");
+if (marketplace.name !== manifest.name) failures.push("marketplace and plugin names differ");
+if (marketplace.interface?.displayName !== manifest.interface?.displayName) {
+  failures.push("marketplace and plugin display names differ");
+}
+if (marketplaceEntry?.source?.path !== "./plugins/decision-table") {
+  failures.push("marketplace manifest plugin path must be ./plugins/decision-table");
+}
+if (marketplaceEntry?.source?.source !== "local") {
+  failures.push("marketplace manifest plugin source must be local to the cloned repository");
+}
+if (marketplaceEntry?.policy?.installation !== "AVAILABLE") {
+  failures.push("marketplace plugin must be available for explicit installation");
+}
+if (marketplaceEntry?.policy?.authentication !== "ON_INSTALL") {
+  failures.push("marketplace plugin authentication policy must be ON_INSTALL");
+}
+if (marketplaceEntry?.category !== manifest.interface?.category) {
+  failures.push("marketplace and plugin categories differ");
+}
 if (manifest.name !== basename(pluginRoot)) failures.push("plugin folder and manifest name differ");
 for (const field of ["version", "description", "license", "skills", "mcpServers"]) {
   if (!manifest[field]) failures.push(`plugin manifest is missing ${field}`);
