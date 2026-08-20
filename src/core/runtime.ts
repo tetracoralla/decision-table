@@ -3,8 +3,9 @@ import type {
   InputDefinition,
   MissingInput,
   ResultError,
+  ValidationIssue,
 } from "../model/types.js";
-import { MODEL_LIMITS } from "../model/schemas.js";
+import { MODEL_LIMITS, SCHEMA_REQUIRED_OWNER } from "../model/schemas.js";
 import { parseStrictDatetime } from "../model/temporal.js";
 
 export function limitResultErrors(errors: ResultError[]): ResultError[] {
@@ -16,6 +17,62 @@ export function limitResultErrors(errors: ResultError[]): ResultError[] {
       message: `Additional errors were omitted after the first ${MODEL_LIMITS.maxResultErrors - 1}.`,
     },
   ];
+}
+
+/** Caps validation issues and replaces the last shown one with a truncation marker. */
+export function capValidationIssues(
+  issues: ValidationIssue[],
+  truncated: boolean,
+  scope: string,
+): ValidationIssue[] {
+  if (!truncated && issues.length <= MODEL_LIMITS.maxValidationIssues) return issues;
+  const capped = issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  const marker: ValidationIssue = {
+    severity: "warning",
+    code: "VALIDATION_ISSUES_TRUNCATED",
+    message: `${scope} stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`,
+  };
+  if (capped.length < MODEL_LIMITS.maxValidationIssues) capped.push(marker);
+  else capped[MODEL_LIMITS.maxValidationIssues - 1] = marker;
+  return capped;
+}
+
+/** Maps error-severity validation issues to the result errors both engines report. */
+export function invalidRulesetErrors(issues: ValidationIssue[]): ResultError[] {
+  const mapped = limitResultErrors(
+    issues
+      .filter((issue) => issue.severity === "error")
+      .map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        ...(issue.paths?.[0] ? { path: issue.paths[0] } : {}),
+      })),
+  );
+  if (mapped.length === 0) {
+    // The shown issues are all warnings, yet validation failed: the error was
+    // displaced by the issue cap. Say so instead of reporting an empty reason.
+    return [
+      {
+        code: "VALIDATION_ISSUES_TRUNCATED",
+        message: "Ruleset is invalid, but the specific error was truncated by the validation issue limit.",
+      },
+    ];
+  }
+  return mapped;
+}
+
+export function versionMismatchError(expected: string, actual: string): ResultError {
+  return {
+    code: "RULESET_VERSION_MISMATCH",
+    message: `Expected version '${expected}' but received '${actual}'.`,
+  };
+}
+
+export function fingerprintMismatchError(expected: string, actual: string): ResultError {
+  return {
+    code: "RULESET_FINGERPRINT_MISMATCH",
+    message: `Expected fingerprint '${expected}' but received '${actual}'.`,
+  };
 }
 
 export function evaluationTime(asOf?: string): string {
@@ -68,7 +125,7 @@ export function missingInputs(
     }));
 }
 
-export function requiredMissingMap(inputs: InputDefinition[]): Map<string, Set<string>> {
-  const paths = new Set(inputs.filter((input) => input.required).map((input) => input.path));
-  return paths.size > 0 ? new Map([["$schema", paths]]) : new Map();
+export function requiredMissingMap(missingRequired: InputDefinition[]): Map<string, Set<string>> {
+  const paths = new Set(missingRequired.map((input) => input.path));
+  return paths.size > 0 ? new Map([[SCHEMA_REQUIRED_OWNER, paths]]) : new Map();
 }

@@ -7,7 +7,12 @@ import type {
 
 function inline(value: JsonValue | JsonValue[]): string {
   const serialized = JSON.stringify(value);
-  return serialized.length <= 160 ? serialized : `${serialized.slice(0, 157)}...`;
+  if (serialized.length <= 160) return serialized;
+  let head = serialized.slice(0, 157);
+  // Never cut between a surrogate pair: the lone half would later encode as U+FFFD.
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
+  return `${head}...`;
 }
 
 export function presentDecision(result: DecisionResult): string {

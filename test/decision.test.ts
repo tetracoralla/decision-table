@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { evaluateDecision } from "../src/core/decision.js";
 import { fingerprintRuleset } from "../src/core/fingerprint.js";
-import type { DecisionRuleset } from "../src/model/types.js";
+import type { DecisionRuleset, JsonObject } from "../src/model/types.js";
 import { compare, decisionRuleset, input } from "./fixtures.js";
 
 describe("decision evaluation", () => {
@@ -32,6 +32,25 @@ describe("decision evaluation", () => {
     expect(result.status).toBe("insufficient_input");
     expect(result.missingInputs).toEqual([
       { path: "vip", type: "boolean", requiredBy: ["R1"] },
+    ]);
+  });
+
+  it("reports only required inputs that are actually missing", () => {
+    const ruleset = decisionRuleset({
+      inputs: [input("provided", "boolean", true), input("missing", "boolean", true)],
+      rules: [
+        {
+          id: "R1",
+          when: compare("provided", "eq", true),
+          then: { decision: "yes" },
+        },
+      ],
+    });
+
+    const result = evaluateDecision({ ruleset, facts: { provided: true } });
+    expect(result.status).toBe("insufficient_input");
+    expect(result.missingInputs).toEqual([
+      { path: "missing", type: "boolean", requiredBy: ["$schema"] },
     ]);
   });
 
@@ -133,5 +152,23 @@ describe("decision evaluation", () => {
     expect(result.errors).toContainEqual(
       expect.objectContaining({ code: "UNKNOWN_FACT", path: "typo" }),
     );
+  });
+
+  it("rejects a flat dotted facts key instead of asking for it forever", () => {
+    const ruleset = decisionRuleset({
+      inputs: [input("user.name", "string", true)],
+      rules: [{ id: "R1", when: compare("user.name", "eq", "Ada"), then: { decision: "ok" } }],
+    });
+    const result = evaluateDecision({ ruleset, facts: { "user.name": "Ada" } });
+    expect(result.status).toBe("invalid_input");
+    expect(result.errors[0]).toMatchObject({ code: "AMBIGUOUS_FACT_KEY", path: "user.name" });
+  });
+
+  it("bounds a cyclic facts object instead of exhausting the heap", () => {
+    const facts: JsonObject = {};
+    (facts as { self?: JsonObject }).self = facts;
+    const result = evaluateDecision({ ruleset: decisionRuleset(), facts });
+    expect(result.status).toBe("invalid_input");
+    expect(result.errors[0]?.code).toBe("FACT_NODE_LIMIT");
   });
 });

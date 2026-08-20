@@ -15,7 +15,7 @@ import type {
   Ruleset,
   ValidationResult,
 } from "./types.js";
-import { isStrictDate, isStrictDatetime } from "./temporal.js";
+import { isStrictDatetime } from "./temporal.js";
 
 export const MODEL_LIMITS = Object.freeze({
   maxRequestBytes: 256 * 1024,
@@ -32,6 +32,9 @@ export const MODEL_LIMITS = Object.freeze({
   maxValidationIssues: 1_000,
   maxStringLength: 16_384,
 });
+
+/** Reserved missing-input owner meaning "required by the ruleset declaration itself". */
+export const SCHEMA_REQUIRED_OWNER = "$schema";
 
 const identifier = z
   .string()
@@ -50,7 +53,6 @@ const factPath = z
   );
 
 const boundedString = z.string().max(MODEL_LIMITS.maxStringLength);
-const isoDate = z.string().refine(isStrictDate, "Expected a real ISO date in YYYY-MM-DD format.");
 const isoDatetime = z
   .string()
   .refine(
@@ -70,7 +72,7 @@ RawJsonValueSchema = z.lazy(() =>
   ]),
 );
 
-function jsonValuesWithinLocalLimits(values: unknown[]): boolean {
+function jsonTreeViolation(values: unknown[], rejectDottedKeys: boolean): string | undefined {
   const pending: Array<{ value: unknown; depth: number }> = values.map((value) => ({ value, depth: 1 }));
   let nodes = 0;
   while (pending.length > 0) {
@@ -78,45 +80,62 @@ function jsonValuesWithinLocalLimits(values: unknown[]): boolean {
     if (!current) break;
     nodes += 1;
     if (nodes > MODEL_LIMITS.maxJsonNodes || current.depth > MODEL_LIMITS.maxJsonDepth) {
-      return false;
+      return `Combined JSON inputs exceed ${MODEL_LIMITS.maxJsonNodes} nodes or depth ${MODEL_LIMITS.maxJsonDepth}.`;
     }
     if (Array.isArray(current.value)) {
       for (const child of current.value) pending.push({ value: child, depth: current.depth + 1 });
     } else if (current.value !== null && typeof current.value === "object") {
-      for (const child of Object.values(current.value as Record<string, unknown>)) {
+      for (const [key, child] of Object.entries(current.value as Record<string, unknown>)) {
+        if (key === "__proto__") {
+          return "JSON objects must not use the reserved key '__proto__'.";
+        }
+        if (rejectDottedKeys && key.includes(".")) {
+          return "JSON object keys must not contain '.'; use nested objects for dotted fact paths.";
+        }
         pending.push({ value: child, depth: current.depth + 1 });
       }
     }
   }
-  return true;
-}
-
-function jsonWithinLocalLimits(value: unknown): boolean {
-  return jsonValuesWithinLocalLimits([value]);
+  return undefined;
 }
 
 function addCumulativeJsonIssue(
   values: unknown[],
   context: z.RefinementCtx,
 ): void {
-  if (!jsonValuesWithinLocalLimits(values)) {
-    context.addIssue({
-      code: "custom",
-      message: `Combined JSON inputs exceed ${MODEL_LIMITS.maxJsonNodes} nodes or depth ${MODEL_LIMITS.maxJsonDepth}.`,
-    });
-  }
+  const violation = jsonTreeViolation(values, false);
+  if (violation) context.addIssue({ code: "custom", message: violation });
 }
 
-export const JsonValueSchema = z.preprocess(
-  (value) => (jsonWithinLocalLimits(value) ? value : Symbol("json_limit_exceeded")),
-  RawJsonValueSchema,
-) as z.ZodType<JsonValue>;
+function rulesetJsonValues(ruleset: Ruleset): unknown[] {
+  if (ruleset.kind === "decision") {
+    return ruleset.rules.map((rule) => rule.then.decision);
+  }
+  return ruleset.constraints.flatMap((constraint) =>
+    (constraint.repairHints ?? []).flatMap((hint) =>
+      hint.kind === "set_value" ? [hint.value] : [],
+    ),
+  );
+}
+
+// Iterative pre-walk guards: bounds node count and depth before the recursive
+// zod schemas run, and reports violations with a specific message instead of a
+// type-mismatch error on a replaced value.
+function jsonGuard(rejectDottedKeys: boolean) {
+  return z.unknown().superRefine((value, context) => {
+    const violation = jsonTreeViolation([value], rejectDottedKeys);
+    if (violation) context.addIssue({ code: "custom", message: violation });
+  });
+}
+
+export const JsonValueSchema = z.pipe(jsonGuard(false), RawJsonValueSchema) as unknown as z.ZodType<JsonValue>;
 
 const RawJsonObjectSchema = z.record(z.string().max(256), RawJsonValueSchema);
-export const JsonObjectSchema = z.preprocess(
-  (value) => (jsonWithinLocalLimits(value) ? value : Symbol("json_limit_exceeded")),
-  RawJsonObjectSchema,
-) as z.ZodType<JsonObject>;
+export const JsonObjectSchema = z.pipe(jsonGuard(false), RawJsonObjectSchema) as unknown as z.ZodType<JsonObject>;
+
+// Context objects (facts/candidate) are addressed by dotted fact paths, so a
+// flat key containing '.' can never be read and must be rejected outright.
+export const ContextObjectSchema = z.pipe(jsonGuard(true), RawJsonObjectSchema) as unknown as z.ZodType<JsonObject>;
 
 export const InputDefinitionSchema = z.strictObject({
   path: factPath,
@@ -197,13 +216,17 @@ function conditionWithinLocalLimits(value: unknown): boolean {
   return true;
 }
 
-export const ConditionSchema = z.preprocess(
-  (value) =>
-    conditionWithinLocalLimits(value)
-      ? value
-      : { op: "__condition_limit_exceeded__" },
+export const ConditionSchema = z.pipe(
+  z.unknown().superRefine((value, context) => {
+    if (!conditionWithinLocalLimits(value)) {
+      context.addIssue({
+        code: "custom",
+        message: `Condition exceeds ${MODEL_LIMITS.maxConditionNodes} nodes or depth ${MODEL_LIMITS.maxConditionDepth}.`,
+      });
+    }
+  }),
   RawConditionSchema,
-) as z.ZodType<Condition>;
+) as unknown as z.ZodType<Condition>;
 
 const ExplanationSchema = z.strictObject({
   code: identifier,
@@ -247,12 +270,17 @@ export const DecisionRuleSchema = z.strictObject({
   }),
 });
 
-export const DecisionRulesetSchema = z.strictObject({
+const DecisionRulesetObjectSchema = z.strictObject({
   ...BaseRulesetShape,
   kind: z.literal("decision"),
   hitPolicy: z.enum(["first", "unique", "collect", "priority"]),
   rules: z.array(DecisionRuleSchema).min(1).max(MODEL_LIMITS.maxRules),
-}) as z.ZodType<DecisionRuleset>;
+});
+
+export const DecisionRulesetSchema = DecisionRulesetObjectSchema
+  .superRefine((ruleset, context) =>
+    addCumulativeJsonIssue(rulesetJsonValues(ruleset as unknown as DecisionRuleset), context),
+  ) as z.ZodType<DecisionRuleset>;
 
 export const ConstraintRuleSchema = z.strictObject({
   id: identifier,
@@ -265,47 +293,57 @@ export const ConstraintRuleSchema = z.strictObject({
   repairHints: z.array(RepairHintSchema).max(MODEL_LIMITS.maxRepairHints).optional(),
 });
 
-export const ConstraintRulesetSchema = z.strictObject({
+const ConstraintRulesetObjectSchema = z.strictObject({
   ...BaseRulesetShape,
   kind: z.literal("constraint"),
   constraints: z.array(ConstraintRuleSchema).min(1).max(MODEL_LIMITS.maxRules),
-}) as z.ZodType<ConstraintRuleset>;
+});
 
-export const RulesetSchema = z.union([
-  DecisionRulesetSchema,
-  ConstraintRulesetSchema,
-]) as z.ZodType<Ruleset>;
+export const ConstraintRulesetSchema = ConstraintRulesetObjectSchema
+  .superRefine((ruleset, context) =>
+    addCumulativeJsonIssue(rulesetJsonValues(ruleset as unknown as ConstraintRuleset), context),
+  ) as z.ZodType<ConstraintRuleset>;
+
+export const RulesetSchema = z
+  .discriminatedUnion("kind", [DecisionRulesetObjectSchema, ConstraintRulesetObjectSchema])
+  .superRefine((ruleset, context) =>
+    addCumulativeJsonIssue(rulesetJsonValues(ruleset as unknown as Ruleset), context),
+  ) as z.ZodType<Ruleset>;
 
 export const EvaluateDecisionRequestSchema = z
   .strictObject({
     ruleset: DecisionRulesetSchema,
-    facts: JsonObjectSchema,
+    facts: ContextObjectSchema,
     expectedVersion: z.string().min(1).max(128).optional(),
     expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     asOf: isoDatetime.optional(),
   })
-  .superRefine((request, context) => addCumulativeJsonIssue([request.facts], context)) as z.ZodType<EvaluateDecisionRequest>;
+  .superRefine((request, context) =>
+    addCumulativeJsonIssue([...rulesetJsonValues(request.ruleset), request.facts], context),
+  ) as z.ZodType<EvaluateDecisionRequest>;
 
 export const CheckConstraintsRequestSchema = z
   .strictObject({
     ruleset: ConstraintRulesetSchema,
-    candidate: JsonObjectSchema,
-    facts: JsonObjectSchema.optional(),
+    candidate: ContextObjectSchema,
+    facts: ContextObjectSchema.optional(),
     expectedVersion: z.string().min(1).max(128).optional(),
     expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     asOf: isoDatetime.optional(),
   })
   .superRefine((request, context) =>
     addCumulativeJsonIssue(
-      request.facts ? [request.candidate, request.facts] : [request.candidate],
+      request.facts
+        ? [...rulesetJsonValues(request.ruleset), request.candidate, request.facts]
+        : [...rulesetJsonValues(request.ruleset), request.candidate],
       context,
     ),
   ) as z.ZodType<CheckConstraintsRequest>;
 
 export const ApprovedConstraintCheckRequestSchema = z
   .strictObject({
-    candidate: JsonObjectSchema,
-    facts: JsonObjectSchema.optional(),
+    candidate: ContextObjectSchema,
+    facts: ContextObjectSchema.optional(),
   })
   .superRefine((request, context) =>
     addCumulativeJsonIssue(
@@ -332,7 +370,7 @@ export const ApprovedConstraintBindingSchema = z.strictObject({
 const MissingInputSchema = z.strictObject({
   path: factPath,
   type: z.enum(["boolean", "integer", "decimal", "string", "date", "datetime"]),
-  requiredBy: z.array(identifier.or(z.literal("$schema"))).max(MODEL_LIMITS.maxRules + 1),
+  requiredBy: z.array(identifier.or(z.literal(SCHEMA_REQUIRED_OWNER))).max(MODEL_LIMITS.maxRules + 1),
 });
 
 const ResultErrorSchema = z.strictObject({
@@ -409,5 +447,3 @@ export const ValidationResultSchema = z.strictObject({
   ruleset: RulesetIdentitySchema.optional(),
   issues: z.array(ValidationIssueSchema).max(MODEL_LIMITS.maxValidationIssues),
 }) as z.ZodType<ValidationResult>;
-
-export const CliAsOfSchema = z.union([isoDatetime, isoDate]);

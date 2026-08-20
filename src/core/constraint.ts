@@ -3,6 +3,7 @@ import type {
   ConstraintResult,
   ConstraintViolation,
   JsonObject,
+  RulesetIdentity,
 } from "../model/types.js";
 import { evaluateCondition } from "./evaluate-condition.js";
 import { validateContext } from "./facts.js";
@@ -10,18 +11,21 @@ import { identifyRuleset } from "./fingerprint.js";
 import {
   effectiveWindowError,
   evaluationTime,
-  limitResultErrors,
+  fingerprintMismatchError,
+  invalidRulesetErrors,
   missingInputs,
+  requiredMissingMap,
+  versionMismatchError,
 } from "./runtime.js";
 import { validateRuleset } from "./validate.js";
 
 function resultBase(
-  request: CheckConstraintsRequest,
+  identity: RulesetIdentity,
   evaluatedAt: string,
 ): Omit<ConstraintResult, "status" | "valid"> {
   return {
     kind: "constraint_result",
-    ruleset: identifyRuleset(request.ruleset),
+    ruleset: identity,
     evaluatedAt,
     checkedConstraints: [],
     violations: [],
@@ -32,22 +36,14 @@ function resultBase(
 
 export function checkConstraints(request: CheckConstraintsRequest): ConstraintResult {
   const evaluatedAt = evaluationTime(request.asOf);
-  const base = resultBase(request, evaluatedAt);
   const validation = validateRuleset(request.ruleset);
+  const base = resultBase(validation.ruleset ?? identifyRuleset(request.ruleset), evaluatedAt);
   if (validation.status === "invalid") {
     return {
       ...base,
       status: "invalid_ruleset",
       valid: null,
-      errors: limitResultErrors(
-        validation.issues
-          .filter((issue) => issue.severity === "error")
-          .map((issue) => ({
-            code: issue.code,
-            message: issue.message,
-            ...(issue.paths?.[0] ? { path: issue.paths[0] } : {}),
-          })),
-      ),
+      errors: invalidRulesetErrors(validation.issues),
     };
   }
 
@@ -56,27 +52,16 @@ export function checkConstraints(request: CheckConstraintsRequest): ConstraintRe
       ...base,
       status: "version_mismatch",
       valid: null,
-      errors: [
-        {
-          code: "RULESET_VERSION_MISMATCH",
-          message: `Expected version '${request.expectedVersion}' but received '${request.ruleset.version}'.`,
-        },
-      ],
+      errors: [versionMismatchError(request.expectedVersion, request.ruleset.version)],
     };
   }
-
 
   if (request.expectedFingerprint && request.expectedFingerprint !== base.ruleset.fingerprint) {
     return {
       ...base,
       status: "fingerprint_mismatch",
       valid: null,
-      errors: [
-        {
-          code: "RULESET_FINGERPRINT_MISMATCH",
-          message: `Expected fingerprint '${request.expectedFingerprint}' but received '${base.ruleset.fingerprint}'.`,
-        },
-      ],
+      errors: [fingerprintMismatchError(request.expectedFingerprint, base.ruleset.fingerprint)],
     };
   }
 
@@ -93,24 +78,25 @@ export function checkConstraints(request: CheckConstraintsRequest): ConstraintRe
     return { ...base, status: "invalid_input", valid: null, errors: contextCheck.errors };
   }
   if (contextCheck.missingRequired.length > 0) {
-    const required = new Map([
-      ["$schema", new Set(contextCheck.missingRequired.map((input) => input.path))],
-    ]);
     return {
       ...base,
       status: "insufficient_input",
       valid: null,
-      missingInputs: missingInputs(required, request.ruleset.inputs),
+      missingInputs: missingInputs(
+        requiredMissingMap(contextCheck.missingRequired),
+        request.ruleset.inputs,
+      ),
     };
   }
 
+  const definitions = new Map(request.ruleset.inputs.map((input) => [input.path, input]));
   const violations: ConstraintViolation[] = [];
   const missing = new Map<string, Set<string>>();
   const checked: string[] = [];
 
   for (const constraint of request.ruleset.constraints) {
     if (constraint.when) {
-      const activation = evaluateCondition(constraint.when, context, request.ruleset.inputs);
+      const activation = evaluateCondition(constraint.when, context, definitions);
       if (activation.truth === "FALSE") continue;
       if (activation.truth === "UNKNOWN") {
         missing.set(constraint.id, activation.missing);
@@ -119,7 +105,7 @@ export function checkConstraints(request: CheckConstraintsRequest): ConstraintRe
     }
 
     checked.push(constraint.id);
-    const assertion = evaluateCondition(constraint.assert, context, request.ruleset.inputs);
+    const assertion = evaluateCondition(constraint.assert, context, definitions);
     if (assertion.truth === "UNKNOWN") {
       missing.set(constraint.id, assertion.missing);
       continue;

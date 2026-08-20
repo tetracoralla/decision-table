@@ -80,31 +80,47 @@ async function readJson(
 ): Promise<unknown> {
   const chunks: Buffer[] = [];
   let stream: AsyncIterable<Uint8Array | string>;
-  if (path === "-") {
-    if (stdinUsed.value) throw new CliError("STDIN_REUSED", "Only one input document may use stdin.");
-    stdinUsed.value = true;
-    stream = process.stdin;
-  } else {
-    const metadata = await stat(path);
-    if (metadata.size > MODEL_LIMITS.maxRequestBytes - budget.used) {
-      throw new CliError(
-        "REQUEST_TOO_LARGE",
-        `Combined input documents exceed ${MODEL_LIMITS.maxRequestBytes} bytes before reading '${path}'.`,
-      );
+  try {
+    if (path === "-") {
+      if (stdinUsed.value) throw new CliError("STDIN_REUSED", "Only one input document may use stdin.");
+      stdinUsed.value = true;
+      stream = process.stdin;
+    } else {
+      const metadata = await stat(path);
+      if (metadata.size > MODEL_LIMITS.maxRequestBytes - budget.used) {
+        throw new CliError(
+          "REQUEST_TOO_LARGE",
+          `Combined input documents exceed ${MODEL_LIMITS.maxRequestBytes} bytes before reading '${path}'.`,
+        );
+      }
+      stream = createReadStream(path);
     }
-    stream = createReadStream(path);
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw new CliError(
+      "INPUT_UNREADABLE",
+      `Cannot read '${path}': ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
-  for await (const chunk of stream) {
-    const bytes = Buffer.from(chunk);
-    if (bytes.byteLength > MODEL_LIMITS.maxRequestBytes - budget.used) {
-      throw new CliError(
-        "REQUEST_TOO_LARGE",
-        `Combined input documents exceed ${MODEL_LIMITS.maxRequestBytes} bytes while reading '${path}'.`,
-      );
+  try {
+    for await (const chunk of stream) {
+      const bytes = Buffer.from(chunk);
+      if (bytes.byteLength > MODEL_LIMITS.maxRequestBytes - budget.used) {
+        throw new CliError(
+          "REQUEST_TOO_LARGE",
+          `Combined input documents exceed ${MODEL_LIMITS.maxRequestBytes} bytes while reading '${path}'.`,
+        );
+      }
+      budget.used += bytes.byteLength;
+      chunks.push(bytes);
     }
-    budget.used += bytes.byteLength;
-    chunks.push(bytes);
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw new CliError(
+      "INPUT_UNREADABLE",
+      `Cannot read '${path}': ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   const bytes = Buffer.concat(chunks);
   try {
@@ -179,7 +195,8 @@ async function run(): Promise<number> {
     output = checkConstraints(request);
   }
 
-  const serialized = JSON.stringify(output, null, args.options.has("--compact") ? 0 : 2);
+  const compact = JSON.stringify(output);
+  const serialized = args.options.has("--compact") ? compact : JSON.stringify(output, null, 2);
   if (Buffer.byteLength(serialized) > MODEL_LIMITS.maxResponseBytes) {
     throw new CliError("RESPONSE_TOO_LARGE", "Result exceeds the response byte limit.");
   }

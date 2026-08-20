@@ -1838,8 +1838,8 @@ function isValidBase64URL(data) {
   if (!base64url.test(data))
     return false;
   const base642 = data.replace(/[-_]/g, (c) => c === "-" ? "+" : "/");
-  const padded = base642.padEnd(Math.ceil(base642.length / 4) * 4, "=");
-  return isValidBase64(padded);
+  const padded2 = base642.padEnd(Math.ceil(base642.length / 4) * 4, "=");
+  return isValidBase64(padded2);
 }
 var $ZodBase64URL = /* @__PURE__ */ $constructor("$ZodBase64URL", (inst, def) => {
   def.pattern ?? (def.pattern = base64url);
@@ -20279,6 +20279,62 @@ function toError(value) {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+// src/model/temporal.ts
+var DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+var DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
+function isLeapYear(year) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+function daysInMonth(year, month) {
+  if (month === 2) return isLeapYear(year) ? 29 : 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+function isStrictDate(value) {
+  const match = DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
+}
+function parseStrictDatetime(value) {
+  const match = DATETIME_PATTERN.exec(value);
+  if (!match || !isStrictDate(`${match[1]}-${match[2]}-${match[3]}`)) return void 0;
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (hour > 23 || minute > 59 || second > 59) return void 0;
+  const offset = match[8];
+  if (offset !== "Z") {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return void 0;
+  }
+  const epochMilliseconds = Date.parse(value);
+  return Number.isFinite(epochMilliseconds) ? epochMilliseconds : void 0;
+}
+function isStrictDatetime(value) {
+  return parseStrictDatetime(value) !== void 0;
+}
+function parseStrictDate(value) {
+  if (!isStrictDate(value)) return void 0;
+  const epochMilliseconds = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(epochMilliseconds) ? epochMilliseconds : void 0;
+}
+function padded(component, width = 2) {
+  return String(Math.abs(component)).padStart(width, "0");
+}
+function epochToStrictDate(epochMilliseconds) {
+  const date4 = new Date(epochMilliseconds);
+  const sign2 = date4.getUTCFullYear() < 0 ? "-" : "";
+  return `${sign2}${padded(date4.getUTCFullYear(), 4)}-${padded(date4.getUTCMonth() + 1)}-${padded(date4.getUTCDate())}`;
+}
+function epochToStrictDatetime(epochMilliseconds) {
+  const date4 = new Date(epochMilliseconds);
+  const time3 = `${padded(date4.getUTCHours())}:${padded(date4.getUTCMinutes())}:${padded(date4.getUTCSeconds())}.${padded(date4.getUTCMilliseconds(), 3)}`;
+  return `${epochToStrictDate(epochMilliseconds)}T${time3}Z`;
+}
+
 // node_modules/decimal.js/decimal.mjs
 var EXP_LIMIT = 9e15;
 var MAX_DIGITS = 1e9;
@@ -22455,49 +22511,6 @@ var Decimal = P.constructor = clone2(DEFAULTS);
 LN10 = new Decimal(LN10);
 PI = new Decimal(PI);
 
-// src/model/temporal.ts
-var DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-var DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/;
-function isLeapYear(year) {
-  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-}
-function daysInMonth(year, month) {
-  if (month === 2) return isLeapYear(year) ? 29 : 28;
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-function isStrictDate(value) {
-  const match = DATE_PATTERN.exec(value);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
-}
-function parseStrictDatetime(value) {
-  const match = DATETIME_PATTERN.exec(value);
-  if (!match || !isStrictDate(`${match[1]}-${match[2]}-${match[3]}`)) return void 0;
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  if (hour > 23 || minute > 59 || second > 59) return void 0;
-  const offset = match[8];
-  if (offset !== "Z") {
-    const offsetHour = Number(offset.slice(1, 3));
-    const offsetMinute = Number(offset.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return void 0;
-  }
-  const epochMilliseconds = Date.parse(value);
-  return Number.isFinite(epochMilliseconds) ? epochMilliseconds : void 0;
-}
-function isStrictDatetime(value) {
-  return parseStrictDatetime(value) !== void 0;
-}
-function parseStrictDate(value) {
-  if (!isStrictDate(value)) return void 0;
-  const epochMilliseconds = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(epochMilliseconds) ? epochMilliseconds : void 0;
-}
-
 // src/model/schemas.ts
 var MODEL_LIMITS = Object.freeze({
   maxRequestBytes: 256 * 1024,
@@ -22514,13 +22527,13 @@ var MODEL_LIMITS = Object.freeze({
   maxValidationIssues: 1e3,
   maxStringLength: 16384
 });
+var SCHEMA_REQUIRED_OWNER = "$schema";
 var identifier = string2().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 var factPath = string2().min(1).max(256).regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/).refine(
   (path) => !path.split(".").some((segment) => ["__proto__", "prototype", "constructor"].includes(segment)),
   "Fact path contains a reserved unsafe segment."
 );
 var boundedString = string2().max(MODEL_LIMITS.maxStringLength);
-var isoDate = string2().refine(isStrictDate, "Expected a real ISO date in YYYY-MM-DD format.");
 var isoDatetime = string2().refine(
   isStrictDatetime,
   "Expected a real ISO datetime with seconds, an explicit offset, and at most millisecond precision."
@@ -22536,7 +22549,7 @@ RawJsonValueSchema = lazy(
     record(string2().max(256), RawJsonValueSchema)
   ])
 );
-function jsonValuesWithinLocalLimits(values) {
+function jsonTreeViolation(values, rejectDottedKeys) {
   const pending = values.map((value) => ({ value, depth: 1 }));
   let nodes = 0;
   while (pending.length > 0) {
@@ -22544,38 +22557,48 @@ function jsonValuesWithinLocalLimits(values) {
     if (!current) break;
     nodes += 1;
     if (nodes > MODEL_LIMITS.maxJsonNodes || current.depth > MODEL_LIMITS.maxJsonDepth) {
-      return false;
+      return `Combined JSON inputs exceed ${MODEL_LIMITS.maxJsonNodes} nodes or depth ${MODEL_LIMITS.maxJsonDepth}.`;
     }
     if (Array.isArray(current.value)) {
       for (const child of current.value) pending.push({ value: child, depth: current.depth + 1 });
     } else if (current.value !== null && typeof current.value === "object") {
-      for (const child of Object.values(current.value)) {
+      for (const [key, child] of Object.entries(current.value)) {
+        if (key === "__proto__") {
+          return "JSON objects must not use the reserved key '__proto__'.";
+        }
+        if (rejectDottedKeys && key.includes(".")) {
+          return "JSON object keys must not contain '.'; use nested objects for dotted fact paths.";
+        }
         pending.push({ value: child, depth: current.depth + 1 });
       }
     }
   }
-  return true;
-}
-function jsonWithinLocalLimits(value) {
-  return jsonValuesWithinLocalLimits([value]);
+  return void 0;
 }
 function addCumulativeJsonIssue(values, context) {
-  if (!jsonValuesWithinLocalLimits(values)) {
-    context.addIssue({
-      code: "custom",
-      message: `Combined JSON inputs exceed ${MODEL_LIMITS.maxJsonNodes} nodes or depth ${MODEL_LIMITS.maxJsonDepth}.`
-    });
-  }
+  const violation = jsonTreeViolation(values, false);
+  if (violation) context.addIssue({ code: "custom", message: violation });
 }
-var JsonValueSchema = preprocess(
-  (value) => jsonWithinLocalLimits(value) ? value : /* @__PURE__ */ Symbol("json_limit_exceeded"),
-  RawJsonValueSchema
-);
+function rulesetJsonValues(ruleset) {
+  if (ruleset.kind === "decision") {
+    return ruleset.rules.map((rule) => rule.then.decision);
+  }
+  return ruleset.constraints.flatMap(
+    (constraint) => (constraint.repairHints ?? []).flatMap(
+      (hint) => hint.kind === "set_value" ? [hint.value] : []
+    )
+  );
+}
+function jsonGuard(rejectDottedKeys) {
+  return unknown().superRefine((value, context) => {
+    const violation = jsonTreeViolation([value], rejectDottedKeys);
+    if (violation) context.addIssue({ code: "custom", message: violation });
+  });
+}
+var JsonValueSchema = pipe(jsonGuard(false), RawJsonValueSchema);
 var RawJsonObjectSchema = record(string2().max(256), RawJsonValueSchema);
-var JsonObjectSchema = preprocess(
-  (value) => jsonWithinLocalLimits(value) ? value : /* @__PURE__ */ Symbol("json_limit_exceeded"),
-  RawJsonObjectSchema
-);
+var JsonObjectSchema = pipe(jsonGuard(false), RawJsonObjectSchema);
+var ContextObjectSchema = pipe(jsonGuard(true), RawJsonObjectSchema);
 var InputDefinitionSchema = strictObject({
   path: factPath,
   type: _enum(["boolean", "integer", "decimal", "string", "date", "datetime"]),
@@ -22649,8 +22672,15 @@ function conditionWithinLocalLimits(value) {
   }
   return true;
 }
-var ConditionSchema = preprocess(
-  (value) => conditionWithinLocalLimits(value) ? value : { op: "__condition_limit_exceeded__" },
+var ConditionSchema = pipe(
+  unknown().superRefine((value, context) => {
+    if (!conditionWithinLocalLimits(value)) {
+      context.addIssue({
+        code: "custom",
+        message: `Condition exceeds ${MODEL_LIMITS.maxConditionNodes} nodes or depth ${MODEL_LIMITS.maxConditionDepth}.`
+      });
+    }
+  }),
   RawConditionSchema
 );
 var ExplanationSchema = strictObject({
@@ -22690,12 +22720,15 @@ var DecisionRuleSchema = strictObject({
     explanation: ExplanationSchema.optional()
   })
 });
-var DecisionRulesetSchema = strictObject({
+var DecisionRulesetObjectSchema = strictObject({
   ...BaseRulesetShape,
   kind: literal("decision"),
   hitPolicy: _enum(["first", "unique", "collect", "priority"]),
   rules: array(DecisionRuleSchema).min(1).max(MODEL_LIMITS.maxRules)
 });
+var DecisionRulesetSchema = DecisionRulesetObjectSchema.superRefine(
+  (ruleset, context) => addCumulativeJsonIssue(rulesetJsonValues(ruleset), context)
+);
 var ConstraintRuleSchema = strictObject({
   id: identifier,
   severity: _enum(["hard", "soft"]),
@@ -22706,38 +22739,42 @@ var ConstraintRuleSchema = strictObject({
   }),
   repairHints: array(RepairHintSchema).max(MODEL_LIMITS.maxRepairHints).optional()
 });
-var ConstraintRulesetSchema = strictObject({
+var ConstraintRulesetObjectSchema = strictObject({
   ...BaseRulesetShape,
   kind: literal("constraint"),
   constraints: array(ConstraintRuleSchema).min(1).max(MODEL_LIMITS.maxRules)
 });
-var RulesetSchema = union([
-  DecisionRulesetSchema,
-  ConstraintRulesetSchema
-]);
+var ConstraintRulesetSchema = ConstraintRulesetObjectSchema.superRefine(
+  (ruleset, context) => addCumulativeJsonIssue(rulesetJsonValues(ruleset), context)
+);
+var RulesetSchema = discriminatedUnion("kind", [DecisionRulesetObjectSchema, ConstraintRulesetObjectSchema]).superRefine(
+  (ruleset, context) => addCumulativeJsonIssue(rulesetJsonValues(ruleset), context)
+);
 var EvaluateDecisionRequestSchema = strictObject({
   ruleset: DecisionRulesetSchema,
-  facts: JsonObjectSchema,
+  facts: ContextObjectSchema,
   expectedVersion: string2().min(1).max(128).optional(),
   expectedFingerprint: string2().regex(/^[a-f0-9]{64}$/).optional(),
   asOf: isoDatetime.optional()
-}).superRefine((request, context) => addCumulativeJsonIssue([request.facts], context));
+}).superRefine(
+  (request, context) => addCumulativeJsonIssue([...rulesetJsonValues(request.ruleset), request.facts], context)
+);
 var CheckConstraintsRequestSchema = strictObject({
   ruleset: ConstraintRulesetSchema,
-  candidate: JsonObjectSchema,
-  facts: JsonObjectSchema.optional(),
+  candidate: ContextObjectSchema,
+  facts: ContextObjectSchema.optional(),
   expectedVersion: string2().min(1).max(128).optional(),
   expectedFingerprint: string2().regex(/^[a-f0-9]{64}$/).optional(),
   asOf: isoDatetime.optional()
 }).superRefine(
   (request, context) => addCumulativeJsonIssue(
-    request.facts ? [request.candidate, request.facts] : [request.candidate],
+    request.facts ? [...rulesetJsonValues(request.ruleset), request.candidate, request.facts] : [...rulesetJsonValues(request.ruleset), request.candidate],
     context
   )
 );
 var ApprovedConstraintCheckRequestSchema = strictObject({
-  candidate: JsonObjectSchema,
-  facts: JsonObjectSchema.optional()
+  candidate: ContextObjectSchema,
+  facts: ContextObjectSchema.optional()
 }).superRefine(
   (request, context) => addCumulativeJsonIssue(
     request.facts ? [request.candidate, request.facts] : [request.candidate],
@@ -22759,7 +22796,7 @@ var ApprovedConstraintBindingSchema = strictObject({
 var MissingInputSchema = strictObject({
   path: factPath,
   type: _enum(["boolean", "integer", "decimal", "string", "date", "datetime"]),
-  requiredBy: array(identifier.or(literal("$schema"))).max(MODEL_LIMITS.maxRules + 1)
+  requiredBy: array(identifier.or(literal(SCHEMA_REQUIRED_OWNER))).max(MODEL_LIMITS.maxRules + 1)
 });
 var ResultErrorSchema = strictObject({
   code: identifier,
@@ -22829,7 +22866,6 @@ var ValidationResultSchema = strictObject({
   ruleset: RulesetIdentitySchema.optional(),
   issues: array(ValidationIssueSchema).max(MODEL_LIMITS.maxValidationIssues)
 });
-var CliAsOfSchema = union([isoDatetime, isoDate]);
 
 // src/core/runtime.ts
 function limitResultErrors(errors) {
@@ -22841,6 +22877,48 @@ function limitResultErrors(errors) {
       message: `Additional errors were omitted after the first ${MODEL_LIMITS.maxResultErrors - 1}.`
     }
   ];
+}
+function capValidationIssues(issues, truncated, scope) {
+  if (!truncated && issues.length <= MODEL_LIMITS.maxValidationIssues) return issues;
+  const capped = issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  const marker = {
+    severity: "warning",
+    code: "VALIDATION_ISSUES_TRUNCATED",
+    message: `${scope} stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`
+  };
+  if (capped.length < MODEL_LIMITS.maxValidationIssues) capped.push(marker);
+  else capped[MODEL_LIMITS.maxValidationIssues - 1] = marker;
+  return capped;
+}
+function invalidRulesetErrors(issues) {
+  const mapped = limitResultErrors(
+    issues.filter((issue2) => issue2.severity === "error").map((issue2) => ({
+      code: issue2.code,
+      message: issue2.message,
+      ...issue2.paths?.[0] ? { path: issue2.paths[0] } : {}
+    }))
+  );
+  if (mapped.length === 0) {
+    return [
+      {
+        code: "VALIDATION_ISSUES_TRUNCATED",
+        message: "Ruleset is invalid, but the specific error was truncated by the validation issue limit."
+      }
+    ];
+  }
+  return mapped;
+}
+function versionMismatchError(expected, actual) {
+  return {
+    code: "RULESET_VERSION_MISMATCH",
+    message: `Expected version '${expected}' but received '${actual}'.`
+  };
+}
+function fingerprintMismatchError(expected, actual) {
+  return {
+    code: "RULESET_FINGERPRINT_MISMATCH",
+    message: `Expected fingerprint '${expected}' but received '${actual}'.`
+  };
 }
 function evaluationTime(asOf) {
   return asOf ?? (/* @__PURE__ */ new Date()).toISOString();
@@ -22881,10 +22959,23 @@ function missingInputs(pathsByOwner, inputs) {
     requiredBy: [...owners].sort()
   }));
 }
+function requiredMissingMap(missingRequired) {
+  const paths = new Set(missingRequired.map((input) => input.path));
+  return paths.size > 0 ? /* @__PURE__ */ new Map([[SCHEMA_REQUIRED_OWNER, paths]]) : /* @__PURE__ */ new Map();
+}
 
 // src/core/facts.ts
 var DECIMAL_PATTERN = /^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 var INTEGER_PATTERN = /^[+-]?(?:0|[1-9]\d*)$/;
+function decimalOf(value) {
+  if (typeof value === "string" && !DECIMAL_PATTERN.test(value)) return void 0;
+  try {
+    const decimal = new Decimal(value);
+    return decimal.isFinite() ? decimal : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function readPath(context, path) {
   const segments = path.split(".");
   let cursor = context;
@@ -22899,23 +22990,33 @@ function readPath(context, path) {
   }
   return { found: true, value: cursor };
 }
-function listLeafPaths(context) {
-  const result = [];
+function collectLeaves(context) {
+  const leaves = [];
+  const ambiguousKeys = [];
+  let nodes = 0;
+  let overNodeLimit = false;
   const pending = [{ value: context, prefix: "" }];
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) break;
+    nodes += 1;
+    if (nodes > MODEL_LIMITS.maxJsonNodes) {
+      overNodeLimit = true;
+      break;
+    }
     if (current.value !== null && !Array.isArray(current.value) && typeof current.value === "object") {
       const entries = Object.entries(current.value);
-      if (entries.length === 0 && current.prefix) result.push(current.prefix);
+      if (entries.length === 0 && current.prefix) leaves.push({ path: current.prefix, value: current.value });
       for (const [key, child] of entries) {
+        if (key.includes(".")) ambiguousKeys.push(current.prefix ? `${current.prefix}.${key}` : key);
         pending.push({ value: child, prefix: current.prefix ? `${current.prefix}.${key}` : key });
       }
     } else if (current.prefix) {
-      result.push(current.prefix);
+      leaves.push({ path: current.prefix, value: current.value });
     }
   }
-  return result.sort();
+  leaves.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  return { leaves, ambiguousKeys, overNodeLimit };
 }
 function isSupportedDecimal(value) {
   if (!DECIMAL_PATTERN.test(value)) return false;
@@ -22952,14 +23053,32 @@ function validateContext(context, inputs) {
   );
   const errors = [];
   const missingRequired = [];
-  for (const actualPath of listLeafPaths(context)) {
-    const actual = readPath(context, actualPath);
-    const isEmptyStructuralObject = structuralPrefixes.has(actualPath) && actual.found && actual.value !== null && !Array.isArray(actual.value) && typeof actual.value === "object";
-    if (!byPath.has(actualPath) && !isEmptyStructuralObject) {
+  const collected = collectLeaves(context);
+  if (collected.overNodeLimit) {
+    return {
+      errors: limitResultErrors([
+        {
+          code: "FACT_NODE_LIMIT",
+          message: `Facts exceed ${MODEL_LIMITS.maxJsonNodes} JSON nodes.`
+        }
+      ]),
+      missingRequired
+    };
+  }
+  for (const key of collected.ambiguousKeys) {
+    errors.push({
+      code: "AMBIGUOUS_FACT_KEY",
+      message: `Fact object key '${key}' contains '.'; express dotted paths with nested objects.`,
+      path: key
+    });
+  }
+  for (const leaf of collected.leaves) {
+    const isEmptyStructuralObject = structuralPrefixes.has(leaf.path) && leaf.value !== null && !Array.isArray(leaf.value) && typeof leaf.value === "object";
+    if (!byPath.has(leaf.path) && !isEmptyStructuralObject) {
       errors.push({
         code: "UNKNOWN_FACT",
-        message: `Fact path '${actualPath}' is not declared by the ruleset.`,
-        path: actualPath
+        message: `Fact path '${leaf.path}' is not declared by the ruleset.`,
+        path: leaf.path
       });
     }
   }
@@ -22988,6 +23107,14 @@ function negate(value) {
 }
 
 // src/core/evaluate-condition.ts
+var COMPARATOR_TESTS = {
+  eq: (comparison) => comparison === 0,
+  neq: (comparison) => comparison !== 0,
+  gt: (comparison) => comparison > 0,
+  gte: (comparison) => comparison >= 0,
+  lt: (comparison) => comparison < 0,
+  lte: (comparison) => comparison <= 0
+};
 function empty(truth) {
   return { truth, missing: /* @__PURE__ */ new Set() };
 }
@@ -23015,16 +23142,20 @@ function inferType(left, right) {
 }
 function compareScalar(left, right, type) {
   if (left === null || right === null) {
-    return left === right ? 0 : left === null ? -1 : 1;
+    return left === right ? 0 : -1;
   }
   if (type === "integer" || type === "decimal") {
-    return new Decimal(left).cmp(new Decimal(right));
+    const leftDecimal = decimalOf(left);
+    const rightDecimal = decimalOf(right);
+    if (leftDecimal === void 0 || rightDecimal === void 0) return left === right ? 0 : -1;
+    return leftDecimal.cmp(rightDecimal);
   }
-  if (type === "date") {
-    return parseStrictDate(left) - parseStrictDate(right);
-  }
-  if (type === "datetime") {
-    return parseStrictDatetime(left) - parseStrictDatetime(right);
+  if (type === "date" || type === "datetime") {
+    const parse3 = type === "date" ? parseStrictDate : parseStrictDatetime;
+    const leftEpoch = parse3(String(left));
+    const rightEpoch = parse3(String(right));
+    if (leftEpoch === void 0 || rightEpoch === void 0) return left === right ? 0 : -1;
+    return leftEpoch - rightEpoch;
   }
   if (typeof left === "string" && typeof right === "string") {
     return left === right ? 0 : left < right ? -1 : 1;
@@ -23060,11 +23191,11 @@ function compareOperands(condition, context, definitions) {
     return { truth: "UNKNOWN", missing: new Set(nullFactPaths) };
   }
   const comparison = compareScalar(leftValue, rightValue, type);
-  const result = condition.comparator === "eq" ? comparison === 0 : condition.comparator === "neq" ? comparison !== 0 : condition.comparator === "gt" ? comparison > 0 : condition.comparator === "gte" ? comparison >= 0 : condition.comparator === "lt" ? comparison < 0 : comparison <= 0;
-  return empty(result ? "TRUE" : "FALSE");
+  const satisfied = COMPARATOR_TESTS[condition.comparator](comparison);
+  return empty(satisfied ? "TRUE" : "FALSE");
 }
 function evaluateCondition(condition, context, inputs) {
-  const definitions = new Map(inputs.map((input) => [input.path, input]));
+  const definitions = inputs instanceof Map ? inputs : new Map(inputs.map((input) => [input.path, input]));
   return evaluate(condition, context, definitions);
 }
 function evaluate(condition, context, definitions) {
@@ -23486,25 +23617,37 @@ var sha256 = /* @__PURE__ */ createHasher(
 );
 
 // src/core/fingerprint.ts
-function sortValue(value) {
+function sortValue(value, ancestors) {
   if (Array.isArray(value)) {
-    return value.map(sortValue);
+    if (ancestors.has(value)) return null;
+    ancestors.add(value);
+    const sorted = value.map((child) => sortValue(child, ancestors));
+    ancestors.delete(value);
+    return sorted;
   }
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, child]) => [key, sortValue(child)])
+    if (ancestors.has(value)) return null;
+    ancestors.add(value);
+    const sorted = Object.fromEntries(
+      Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, child]) => [key, sortValue(child, ancestors)])
     );
+    ancestors.delete(value);
+    return sorted;
   }
   return value;
 }
 function canonicalJson(value) {
-  return JSON.stringify(sortValue(value));
+  return JSON.stringify(sortValue(value, /* @__PURE__ */ new Set()));
 }
 function sha256Hex(text) {
   return bytesToHex(sha256(utf8ToBytes(text)));
 }
 function fingerprintRuleset(ruleset) {
-  return sha256Hex(canonicalJson(ruleset));
+  try {
+    return sha256Hex(canonicalJson(ruleset));
+  } catch {
+    return sha256Hex("__unserializable_ruleset__");
+  }
 }
 function identifyRuleset(ruleset) {
   return {
@@ -23517,8 +23660,12 @@ function identifyRuleset(ruleset) {
 // src/core/static-analysis.ts
 function comparisonValue(value, type) {
   if (value === null) return null;
-  if (type === "integer" || type === "decimal") return new Decimal(value);
-  if (type === "date" || type === "datetime") return new Decimal(new Date(value).valueOf());
+  if (type === "integer" || type === "decimal") return decimalOf(value) ?? null;
+  if (type === "date" || type === "datetime") {
+    const parse3 = type === "date" ? parseStrictDate : parseStrictDatetime;
+    const epoch = parse3(value);
+    return epoch === void 0 ? null : new Decimal(epoch);
+  }
   return value;
 }
 function compare(left, right, type) {
@@ -23624,8 +23771,8 @@ function domainIsSatisfiable(domain) {
 function fromComparable(value, type) {
   if (type === "integer") return value.toFixed(0);
   if (type === "decimal") return value.toString();
-  if (type === "date") return new Date(value.toNumber()).toISOString().slice(0, 10);
-  if (type === "datetime") return new Date(value.toNumber()).toISOString();
+  if (type === "date") return epochToStrictDate(value.toNumber());
+  if (type === "datetime") return epochToStrictDatetime(value.toNumber());
   return value.toString();
 }
 function chooseWitness(domain) {
@@ -23667,10 +23814,7 @@ function writePath(target, path, value) {
   const leaf = segments.at(-1);
   if (leaf) cursor[leaf] = value;
 }
-function overlapExample(left, right, inputs) {
-  const leftClauses = clausesFor(left, inputs);
-  const rightClauses = clausesFor(right, inputs);
-  if (!leftClauses || !rightClauses) return null;
+function overlapExample(leftClauses, rightClauses) {
   const merged = buildDomains([...leftClauses, ...rightClauses]);
   const example = {};
   for (const [path, domain] of merged) {
@@ -23684,11 +23828,13 @@ function analyzeDecisionRules(ruleset) {
   const issues = [];
   let truncated = false;
   const inputs = new Map(ruleset.inputs.map((input) => [input.path, input]));
+  const canonical = ruleset.rules.map((rule) => canonicalJson(rule.when));
+  const clausesByRule = ruleset.rules.map((rule) => clausesFor(rule.when, inputs));
   analysis:
     for (let index = 0; index < ruleset.rules.length; index += 1) {
       const rule = ruleset.rules[index];
       if (!rule) continue;
-      const clauses = clausesFor(rule.when, inputs);
+      const clauses = clausesByRule[index];
       if (clauses) {
         const domains = buildDomains(clauses);
         if ([...domains.values()].some((domain) => !domainIsSatisfiable(domain))) {
@@ -23707,7 +23853,7 @@ function analyzeDecisionRules(ruleset) {
       for (let otherIndex = index + 1; otherIndex < ruleset.rules.length; otherIndex += 1) {
         const other = ruleset.rules[otherIndex];
         if (!other) continue;
-        if (canonicalJson(rule.when) === canonicalJson(other.when)) {
+        if (canonical[index] === canonical[otherIndex]) {
           issues.push({
             severity: ruleset.hitPolicy === "unique" ? "error" : "warning",
             code: ruleset.hitPolicy === "first" ? "UNREACHABLE_RULE" : "DUPLICATE_RULE_CONDITION",
@@ -23721,7 +23867,9 @@ function analyzeDecisionRules(ruleset) {
           continue;
         }
         if (ruleset.hitPolicy !== "unique") continue;
-        const example = overlapExample(rule.when, other.when, inputs);
+        const otherClauses = clausesByRule[otherIndex];
+        if (!clauses || !otherClauses) continue;
+        const example = overlapExample(clauses, otherClauses);
         if (example) {
           issues.push({
             severity: "error",
@@ -23737,14 +23885,7 @@ function analyzeDecisionRules(ruleset) {
         }
       }
     }
-  if (truncated) {
-    issues[MODEL_LIMITS.maxValidationIssues - 1] = {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Static analysis stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`
-    };
-  }
-  return issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  return capValidationIssues(issues, truncated, "Static analysis");
 }
 
 // src/core/validate.ts
@@ -23755,15 +23896,7 @@ function zodIssues(error2) {
     message: issue2.message,
     paths: [issue2.path.join(".") || "$"]
   }));
-  if (issues.length <= MODEL_LIMITS.maxValidationIssues) return issues;
-  return [
-    ...issues.slice(0, MODEL_LIMITS.maxValidationIssues - 1),
-    {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Schema validation stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`
-    }
-  ];
+  return capValidationIssues(issues, issues.length > MODEL_LIMITS.maxValidationIssues, "Schema validation");
 }
 function visitCondition(condition, visitor, depth = 1) {
   visitor(condition, depth);
@@ -23788,7 +23921,6 @@ function validateConditionSemantics(condition, inputs, ownerId) {
   visitCondition(condition, (node, depth) => {
     nodes += 1;
     deepest = Math.max(deepest, depth);
-    if (issues.length >= MODEL_LIMITS.maxValidationIssues) return;
     if (node.op === "exists") {
       if (!definitions.has(node.path)) {
         issues.push({
@@ -23902,12 +24034,6 @@ function validateConditionSemantics(condition, inputs, ownerId) {
 }
 function semanticIssues(ruleset) {
   const issues = [];
-  let truncated = false;
-  const appendIssues = (next) => {
-    const remaining = MODEL_LIMITS.maxValidationIssues - issues.length;
-    if (next.length > remaining) truncated = true;
-    if (remaining > 0) issues.push(...next.slice(0, remaining));
-  };
   const inputPaths = /* @__PURE__ */ new Set();
   for (const input of ruleset.inputs) {
     if (inputPaths.has(input.path)) {
@@ -23959,7 +24085,7 @@ function semanticIssues(ruleset) {
     ids.add(owner.id);
     for (const condition of owner.conditions) {
       const analysis = validateConditionSemantics(condition, ruleset.inputs, owner.id);
-      appendIssues(analysis.issues);
+      issues.push(...analysis.issues);
       totalConditionNodes += analysis.nodes;
     }
   }
@@ -23990,7 +24116,7 @@ function semanticIssues(ruleset) {
       });
     }
     if (!issues.some((issue2) => issue2.severity === "error")) {
-      appendIssues(analyzeDecisionRules(ruleset));
+      issues.push(...analyzeDecisionRules(ruleset));
     }
   } else {
     const inputByPath = new Map(ruleset.inputs.map((input) => [input.path, input]));
@@ -24026,43 +24152,31 @@ function semanticIssues(ruleset) {
       }
     }
   }
-  if (issues.length > MODEL_LIMITS.maxValidationIssues) {
-    truncated = true;
-    issues.length = MODEL_LIMITS.maxValidationIssues;
-  }
-  if (truncated) {
-    const marker = {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Validation stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`
-    };
-    if (issues.length >= MODEL_LIMITS.maxValidationIssues) {
-      issues[MODEL_LIMITS.maxValidationIssues - 1] = marker;
-    } else {
-      issues.push(marker);
-    }
-  }
-  return issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  const errorSeen = issues.some((issue2) => issue2.severity === "error");
+  return {
+    issues: capValidationIssues(issues, issues.length > MODEL_LIMITS.maxValidationIssues, "Validation"),
+    errorSeen
+  };
 }
 function validateRuleset(input) {
   const parsed = RulesetSchema.safeParse(input);
   if (!parsed.success) {
     return { kind: "validation_result", status: "invalid", issues: zodIssues(parsed.error) };
   }
-  const issues = semanticIssues(parsed.data);
+  const analysis = semanticIssues(parsed.data);
   return {
     kind: "validation_result",
-    status: issues.some((issue2) => issue2.severity === "error") ? "invalid" : "valid",
+    status: analysis.errorSeen ? "invalid" : "valid",
     ruleset: identifyRuleset(parsed.data),
-    issues
+    issues: analysis.issues
   };
 }
 
 // src/core/constraint.ts
-function resultBase(request, evaluatedAt) {
+function resultBase(identity, evaluatedAt) {
   return {
     kind: "constraint_result",
-    ruleset: identifyRuleset(request.ruleset),
+    ruleset: identity,
     evaluatedAt,
     checkedConstraints: [],
     violations: [],
@@ -24072,20 +24186,14 @@ function resultBase(request, evaluatedAt) {
 }
 function checkConstraints(request) {
   const evaluatedAt = evaluationTime(request.asOf);
-  const base = resultBase(request, evaluatedAt);
   const validation = validateRuleset(request.ruleset);
+  const base = resultBase(validation.ruleset ?? identifyRuleset(request.ruleset), evaluatedAt);
   if (validation.status === "invalid") {
     return {
       ...base,
       status: "invalid_ruleset",
       valid: null,
-      errors: limitResultErrors(
-        validation.issues.filter((issue2) => issue2.severity === "error").map((issue2) => ({
-          code: issue2.code,
-          message: issue2.message,
-          ...issue2.paths?.[0] ? { path: issue2.paths[0] } : {}
-        }))
-      )
+      errors: invalidRulesetErrors(validation.issues)
     };
   }
   if (request.expectedVersion && request.expectedVersion !== request.ruleset.version) {
@@ -24093,12 +24201,7 @@ function checkConstraints(request) {
       ...base,
       status: "version_mismatch",
       valid: null,
-      errors: [
-        {
-          code: "RULESET_VERSION_MISMATCH",
-          message: `Expected version '${request.expectedVersion}' but received '${request.ruleset.version}'.`
-        }
-      ]
+      errors: [versionMismatchError(request.expectedVersion, request.ruleset.version)]
     };
   }
   if (request.expectedFingerprint && request.expectedFingerprint !== base.ruleset.fingerprint) {
@@ -24106,12 +24209,7 @@ function checkConstraints(request) {
       ...base,
       status: "fingerprint_mismatch",
       valid: null,
-      errors: [
-        {
-          code: "RULESET_FINGERPRINT_MISMATCH",
-          message: `Expected fingerprint '${request.expectedFingerprint}' but received '${base.ruleset.fingerprint}'.`
-        }
-      ]
+      errors: [fingerprintMismatchError(request.expectedFingerprint, base.ruleset.fingerprint)]
     };
   }
   const lifecycleError = effectiveWindowError(request.ruleset.effective, evaluatedAt);
@@ -24124,22 +24222,23 @@ function checkConstraints(request) {
     return { ...base, status: "invalid_input", valid: null, errors: contextCheck.errors };
   }
   if (contextCheck.missingRequired.length > 0) {
-    const required2 = /* @__PURE__ */ new Map([
-      ["$schema", new Set(contextCheck.missingRequired.map((input) => input.path))]
-    ]);
     return {
       ...base,
       status: "insufficient_input",
       valid: null,
-      missingInputs: missingInputs(required2, request.ruleset.inputs)
+      missingInputs: missingInputs(
+        requiredMissingMap(contextCheck.missingRequired),
+        request.ruleset.inputs
+      )
     };
   }
+  const definitions = new Map(request.ruleset.inputs.map((input) => [input.path, input]));
   const violations = [];
   const missing = /* @__PURE__ */ new Map();
   const checked = [];
   for (const constraint of request.ruleset.constraints) {
     if (constraint.when) {
-      const activation = evaluateCondition(constraint.when, context, request.ruleset.inputs);
+      const activation = evaluateCondition(constraint.when, context, definitions);
       if (activation.truth === "FALSE") continue;
       if (activation.truth === "UNKNOWN") {
         missing.set(constraint.id, activation.missing);
@@ -24147,7 +24246,7 @@ function checkConstraints(request) {
       }
     }
     checked.push(constraint.id);
-    const assertion = evaluateCondition(constraint.assert, context, request.ruleset.inputs);
+    const assertion = evaluateCondition(constraint.assert, context, definitions);
     if (assertion.truth === "UNKNOWN") {
       missing.set(constraint.id, assertion.missing);
       continue;
@@ -24202,10 +24301,10 @@ function explanations(rules) {
     (rule) => rule.then.explanation ? [{ ...rule.then.explanation, ruleId: rule.id }] : []
   );
 }
-function resultBase2(request, evaluatedAt) {
+function resultBase2(identity, evaluatedAt) {
   return {
     kind: "decision_result",
-    ruleset: identifyRuleset(request.ruleset),
+    ruleset: identity,
     evaluatedAt,
     matchedRules: [],
     missingInputs: [],
@@ -24222,60 +24321,43 @@ function decisionFrom(base, rule) {
     explanations: explanations([rule])
   };
 }
-function missingForRules(evaluated, request, evaluatedAt) {
+function missingForRules(evaluated, base, inputs) {
   const paths = /* @__PURE__ */ new Map();
   for (const item of evaluated) {
     if (item.truth === "UNKNOWN") paths.set(item.rule.id, item.missing);
   }
-  const base = resultBase2(request, evaluatedAt);
   const matched = evaluated.filter((item) => item.truth === "TRUE").map((item) => item.rule);
   return {
     ...base,
     status: "insufficient_input",
     matchedRules: matched.map((rule) => rule.id),
     explanations: explanations(matched),
-    missingInputs: missingInputs(paths, request.ruleset.inputs)
+    missingInputs: missingInputs(paths, inputs)
   };
 }
 function evaluateDecision(request) {
   const evaluatedAt = evaluationTime(request.asOf);
-  const base = resultBase2(request, evaluatedAt);
   const validation = validateRuleset(request.ruleset);
+  const base = resultBase2(validation.ruleset ?? identifyRuleset(request.ruleset), evaluatedAt);
   if (validation.status === "invalid") {
     return {
       ...base,
       status: "invalid_ruleset",
-      errors: limitResultErrors(
-        validation.issues.filter((issue2) => issue2.severity === "error").map((issue2) => ({
-          code: issue2.code,
-          message: issue2.message,
-          ...issue2.paths?.[0] ? { path: issue2.paths[0] } : {}
-        }))
-      )
+      errors: invalidRulesetErrors(validation.issues)
     };
   }
   if (request.expectedVersion && request.expectedVersion !== request.ruleset.version) {
     return {
       ...base,
       status: "version_mismatch",
-      errors: [
-        {
-          code: "RULESET_VERSION_MISMATCH",
-          message: `Expected version '${request.expectedVersion}' but received '${request.ruleset.version}'.`
-        }
-      ]
+      errors: [versionMismatchError(request.expectedVersion, request.ruleset.version)]
     };
   }
   if (request.expectedFingerprint && request.expectedFingerprint !== base.ruleset.fingerprint) {
     return {
       ...base,
       status: "fingerprint_mismatch",
-      errors: [
-        {
-          code: "RULESET_FINGERPRINT_MISMATCH",
-          message: `Expected fingerprint '${request.expectedFingerprint}' but received '${base.ruleset.fingerprint}'.`
-        }
-      ]
+      errors: [fingerprintMismatchError(request.expectedFingerprint, base.ruleset.fingerprint)]
     };
   }
   const lifecycleError = effectiveWindowError(request.ruleset.effective, evaluatedAt);
@@ -24287,26 +24369,30 @@ function evaluateDecision(request) {
     return { ...base, status: "invalid_input", errors: contextCheck.errors };
   }
   if (contextCheck.missingRequired.length > 0) {
-    const required2 = /* @__PURE__ */ new Map([
-      ["$schema", new Set(contextCheck.missingRequired.map((input) => input.path))]
-    ]);
     return {
       ...base,
       status: "insufficient_input",
-      missingInputs: missingInputs(required2, request.ruleset.inputs)
+      missingInputs: missingInputs(
+        requiredMissingMap(contextCheck.missingRequired),
+        request.ruleset.inputs
+      )
     };
   }
-  const evaluated = request.ruleset.rules.map((rule) => ({
-    rule,
-    ...evaluateCondition(rule.when, request.facts, request.ruleset.inputs)
-  }));
+  const definitions = new Map(request.ruleset.inputs.map((input) => [input.path, input]));
   if (request.ruleset.hitPolicy === "first") {
-    for (const item of evaluated) {
-      if (item.truth === "UNKNOWN") return missingForRules([item], request, evaluatedAt);
-      if (item.truth === "TRUE") return decisionFrom(base, item.rule);
+    for (const rule of request.ruleset.rules) {
+      const evaluation = evaluateCondition(rule.when, request.facts, definitions);
+      if (evaluation.truth === "UNKNOWN") {
+        return missingForRules([{ rule, ...evaluation }], base, request.ruleset.inputs);
+      }
+      if (evaluation.truth === "TRUE") return decisionFrom(base, rule);
     }
     return { ...base, status: "no_match" };
   }
+  const evaluated = request.ruleset.rules.map((rule) => ({
+    rule,
+    ...evaluateCondition(rule.when, request.facts, definitions)
+  }));
   const matched = evaluated.filter((item) => item.truth === "TRUE");
   const unknown2 = evaluated.filter((item) => item.truth === "UNKNOWN");
   if (request.ruleset.hitPolicy === "unique") {
@@ -24324,12 +24410,12 @@ function evaluateDecision(request) {
         ]
       };
     }
-    if (unknown2.length > 0) return missingForRules(evaluated, request, evaluatedAt);
+    if (unknown2.length > 0) return missingForRules(evaluated, base, request.ruleset.inputs);
     if (matched[0]) return decisionFrom(base, matched[0].rule);
     return { ...base, status: "no_match" };
   }
   if (request.ruleset.hitPolicy === "collect") {
-    if (unknown2.length > 0) return missingForRules(evaluated, request, evaluatedAt);
+    if (unknown2.length > 0) return missingForRules(evaluated, base, request.ruleset.inputs);
     if (matched.length === 0) return { ...base, status: "no_match" };
     return {
       ...base,
@@ -24347,7 +24433,7 @@ function evaluateDecision(request) {
     (item) => item.rule.priority >= highestMatchedPriority
   );
   if (consequentialUnknown.length > 0) {
-    return missingForRules([...matched, ...consequentialUnknown], request, evaluatedAt);
+    return missingForRules([...matched, ...consequentialUnknown], base, request.ruleset.inputs);
   }
   if (matched.length === 0) return { ...base, status: "no_match" };
   const winners = matched.filter((item) => item.rule.priority === highestMatchedPriority);
@@ -24475,10 +24561,39 @@ function createApprovedConstraintChecker(binding, now = () => (/* @__PURE__ */ n
   });
 }
 
+// src/mcp-schema.ts
+function asMcpSchema(schema) {
+  const jsonSchema = toJSONSchema(schema, { target: "draft-2020-12" });
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "decision-table",
+      validate(value) {
+        const parsed = schema.safeParse(value);
+        if (parsed.success) return { value: parsed.data };
+        return {
+          issues: parsed.error.issues.map((issue2) => ({
+            message: issue2.message,
+            path: issue2.path
+          }))
+        };
+      },
+      jsonSchema: {
+        input: () => jsonSchema,
+        output: () => jsonSchema
+      }
+    }
+  };
+}
+
 // src/presentation.ts
 function inline(value) {
   const serialized = JSON.stringify(value);
-  return serialized.length <= 160 ? serialized : `${serialized.slice(0, 157)}...`;
+  if (serialized.length <= 160) return serialized;
+  let head = serialized.slice(0, 157);
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 55296 && last <= 56319) head = head.slice(0, -1);
+  return `${head}...`;
 }
 function presentDecision(result) {
   const identity = `${result.ruleset.id}@${result.ruleset.version}`;
@@ -24518,6 +24633,15 @@ function presentValidation(result) {
 // src/mcp.ts
 var TOOL_NAMES = ["decision.evaluate", "decision.validate", "constraint.check"];
 var APPROVED_CHECK_TOOL_NAME = "constraint.check_approved";
+var mcpSchemas = {
+  approvedConstraintCheckRequest: asMcpSchema(ApprovedConstraintCheckRequestSchema),
+  checkConstraintsRequest: asMcpSchema(CheckConstraintsRequestSchema),
+  constraintResult: asMcpSchema(ConstraintResultSchema),
+  decisionResult: asMcpSchema(DecisionResultSchema),
+  evaluateDecisionRequest: asMcpSchema(EvaluateDecisionRequestSchema),
+  validationRequest: asMcpSchema(ValidationRequestSchema),
+  validationResult: asMcpSchema(ValidationResultSchema)
+};
 function toolError(code, message) {
   const payload = { error: { code, message } };
   return {
@@ -24527,21 +24651,21 @@ function toolError(code, message) {
   };
 }
 function respond(result, summary) {
-  const serialized = JSON.stringify(result);
-  if (Buffer.byteLength(serialized) > MODEL_LIMITS.maxResponseBytes) {
-    return toolError("RESPONSE_TOO_LARGE", "Result exceeds the response byte limit.");
-  }
-  return {
+  const response = {
     content: [{ type: "text", text: summary }],
     structuredContent: result
   };
+  if (Buffer.byteLength(JSON.stringify(response)) > MODEL_LIMITS.maxResponseBytes) {
+    return toolError("RESPONSE_TOO_LARGE", "Result exceeds the response byte limit.");
+  }
+  return response;
 }
 function requestWithinLimit(input) {
   return Buffer.byteLength(JSON.stringify(input)) <= MODEL_LIMITS.maxRequestBytes;
 }
 function createServer(options = {}) {
   const server = new McpServer(
-    { name: "decision-table", version: "0.1.0" },
+    { name: "decision-table", version: "0.1.1" },
     {
       instructions: options.approvedConstraintChecker ? "Use constraint.check_approved to check candidate data against the host-bound approved ruleset. This remains a read-only check because the caller supplies candidate and facts; only a host-side execution guard can make it mandatory and source trusted facts. Use the inline tools only for advisory analysis." : "Use decision.evaluate for a business decision, decision.validate when a ruleset is created or changed, and constraint.check before an advisory candidate check. Missing input is not false; fetch only named missing facts and re-run. These read-only tools do not enforce external side effects."
     }
@@ -24551,8 +24675,8 @@ function createServer(options = {}) {
     {
       title: "Evaluate decision",
       description: "Deterministically evaluate an inline versioned decision ruleset from explicit facts; returns the decision, conflicts, or exact missing inputs.",
-      inputSchema: EvaluateDecisionRequestSchema,
-      outputSchema: DecisionResultSchema,
+      inputSchema: mcpSchemas.evaluateDecisionRequest,
+      outputSchema: mcpSchemas.decisionResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false }
     },
     async (request) => {
@@ -24566,8 +24690,8 @@ function createServer(options = {}) {
     {
       title: "Validate ruleset",
       description: "Validate an inline decision or constraint ruleset before use; reports strict schema errors and conservative proven overlap or shadowing.",
-      inputSchema: ValidationRequestSchema,
-      outputSchema: ValidationResultSchema,
+      inputSchema: mcpSchemas.validationRequest,
+      outputSchema: mcpSchemas.validationResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false }
     },
     async ({ ruleset }) => {
@@ -24581,8 +24705,8 @@ function createServer(options = {}) {
     {
       title: "Check constraints",
       description: "Deterministically check a proposed candidate against inline versioned constraints; returns violations, missing inputs, and configured repair hints.",
-      inputSchema: CheckConstraintsRequestSchema,
-      outputSchema: ConstraintResultSchema,
+      inputSchema: mcpSchemas.checkConstraintsRequest,
+      outputSchema: mcpSchemas.constraintResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false }
     },
     async (request) => {
@@ -24598,8 +24722,8 @@ function createServer(options = {}) {
       {
         title: "Check approved constraints",
         description: "Read-only check against the exact host-bound approved ruleset. The caller cannot replace policy or time, but still supplies candidate and facts; the host must verify them before any governed execution.",
-        inputSchema: ApprovedConstraintCheckRequestSchema,
-        outputSchema: ConstraintResultSchema,
+        inputSchema: mcpSchemas.approvedConstraintCheckRequest,
+        outputSchema: mcpSchemas.constraintResult,
         annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false }
       },
       async (request) => {
@@ -24634,7 +24758,14 @@ function isDirectEntry() {
   }
 }
 if (isDirectEntry()) {
-  void serveStdio(createConfiguredServer);
+  serveStdio(createConfiguredServer, {
+    // Without this callback the SDK swallows out-of-band errors, including
+    // startup configuration failures, and the client only sees a generic
+    // internal error with no diagnostic on stderr.
+    onerror: (error2) => {
+      console.error(`decision-table MCP server error: ${error2 instanceof Error ? error2.message : String(error2)}`);
+    }
+  });
   console.error("decision-table MCP server running on stdio");
 }
 export {

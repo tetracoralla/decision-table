@@ -39,11 +39,16 @@ export interface ConstraintExecutionGuard<TResult> {
   execute(action: unknown): Promise<ConstraintExecutionOutcome<TResult>>;
 }
 
+/**
+ * evaluateAndExecute resolves to undefined when the invocation is ignored
+ * because it arrived after the guard completed or duplicated an invocation;
+ * no side effect ran for that ignored call.
+ */
 export type TrustedConstraintContextRunner<TResult> = (
   action: ReadonlyJsonObject,
   evaluateAndExecute: (
     context: TrustedConstraintExecutionContext<TResult>,
-  ) => Promise<ConstraintExecutionOutcome<TResult>>,
+  ) => Promise<ConstraintExecutionOutcome<TResult> | undefined>,
 ) => Promise<unknown>;
 
 function configurationError(message: string): never {
@@ -185,40 +190,74 @@ export function createConstraintExecutionGuard<TResult>(
     ruleset: checker.ruleset,
     async execute(action: unknown): Promise<ConstraintExecutionOutcome<TResult>> {
       const bytes = serializedByteLength(action);
+      if (bytes === undefined) {
+        throw new ConstraintExecutionInputError("Guarded action must be a bounded serializable JSON object.");
+      }
+      if (bytes > MODEL_LIMITS.maxRequestBytes) {
+        throw new ConstraintExecutionInputError(`Guarded action exceeds ${MODEL_LIMITS.maxRequestBytes} bytes.`);
+      }
       const actionResult = JsonObjectSchema.safeParse(action);
-      if (
-        bytes === undefined ||
-        bytes > MODEL_LIMITS.maxRequestBytes ||
-        !actionResult.success
-      ) {
-        throw new ConstraintExecutionInputError(
-          bytes !== undefined && bytes > MODEL_LIMITS.maxRequestBytes
-            ? `Guarded action exceeds ${MODEL_LIMITS.maxRequestBytes} bytes.`
-            : "Guarded action must be a bounded serializable JSON object.",
-        );
+      if (!actionResult.success) {
+        throw new ConstraintExecutionInputError("Guarded action must be a bounded serializable JSON object.");
       }
 
       const snapshot = deepFreezeJson(actionResult.data) as ReadonlyJsonObject;
       let produced: ConstraintExecutionOutcome<TResult> | undefined;
       let contextCalls = 0;
-      await runInTrustedContext(snapshot, async (context) => {
-        contextCalls += 1;
-        if (contextCalls > 1) {
-          return configurationError("Trusted execution context invoked the guard more than once.");
-        }
-        const constraint = checker.check({
-          candidate: context.candidate,
-          ...(context.facts === undefined ? {} : { facts: context.facts }),
-        });
-        if (constraint.valid !== true) {
-          produced = { status: "blocked", constraint };
-          return produced;
-        }
-        const value = await context.execute(snapshot);
-        produced = { status: "executed", constraint, value };
-        return produced;
-      });
+      let closed = false;
+      let activeInvocation: Promise<ConstraintExecutionOutcome<TResult> | undefined> | undefined;
+      let runnerError: unknown;
+      let runnerFailed = false;
+      let invocationError: unknown;
+      let invocationFailed = false;
+      try {
+        await runInTrustedContext(snapshot, (context) => {
+          // A callback retained beyond the trusted context cannot start a side
+          // effect. Resolve quietly because the caller may have discarded the
+          // returned promise.
+          if (closed) return Promise.resolve(undefined);
+          contextCalls += 1;
+          if (contextCalls > 1) return Promise.resolve(undefined);
 
+          activeInvocation = (async () => {
+            const constraint = checker.check({
+              candidate: context.candidate,
+              ...(context.facts === undefined ? {} : { facts: context.facts }),
+            });
+            if (constraint.valid !== true) {
+              produced = { status: "blocked", constraint };
+              return produced;
+            }
+            if (closed) return;
+            const value = await context.execute(snapshot);
+            produced = { status: "executed", constraint, value };
+            return produced;
+          })();
+          return activeInvocation;
+        });
+      } catch (error) {
+        runnerFailed = true;
+        runnerError = error;
+      }
+      closed = true;
+
+      // A misconfigured context may call the continuation without returning or
+      // awaiting it. Always join that invocation before reporting an outcome so
+      // an error cannot hide a side effect that is still completing.
+      if (activeInvocation) {
+        try {
+          await activeInvocation;
+        } catch (error) {
+          invocationFailed = true;
+          invocationError = error;
+        }
+      }
+      if (produced?.status === "executed") return produced;
+      if (runnerFailed) throw runnerError;
+      if (invocationFailed) throw invocationError;
+      if (contextCalls > 1) {
+        return configurationError("Trusted execution context invoked the guard more than once.");
+      }
       if (!produced) {
         return configurationError("Trusted execution context did not invoke the guard.");
       }
