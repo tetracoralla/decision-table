@@ -13,10 +13,19 @@ function readText(path, label) {
   }
 }
 
-const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+function readJson(path, label) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    failures.push(`${label} is missing or invalid JSON: ${error instanceof Error ? error.message : error}`);
+    return {};
+  }
+}
+
+const packageJson = readJson(resolve(root, "package.json"), "package manifest");
 const pluginRoot = resolve(root, "plugins/decision-table");
-const pluginJson = JSON.parse(readFileSync(resolve(pluginRoot, ".codex-plugin/plugin.json"), "utf8"));
-const mcpJson = JSON.parse(readFileSync(resolve(pluginRoot, ".mcp.json"), "utf8"));
+const pluginJson = readJson(resolve(pluginRoot, ".codex-plugin/plugin.json"), "plugin manifest");
+const mcpJson = readJson(resolve(pluginRoot, ".mcp.json"), "plugin MCP configuration");
 const skill = readText(resolve(pluginRoot, "skills/use-decision-table/SKILL.md"), "product Skill");
 const skillMetadata = readText(resolve(pluginRoot, "skills/use-decision-table/agents/openai.yaml"), "Skill UI metadata");
 const identity = readText(resolve(root, "docs/PRODUCT_IDENTITY.md"), "product identity contract");
@@ -24,13 +33,13 @@ const readme = readText(resolve(root, "README.md"), "README");
 const installation = readText(resolve(root, "docs/INSTALLATION.md"), "installation guide");
 const license = readText(resolve(root, "LICENSE"), "license");
 const security = readText(resolve(root, "SECURITY.md"), "security policy");
-const mcpSource = readFileSync(resolve(root, "src/mcp.ts"), "utf8");
+const mcpSource = readText(resolve(root, "src/mcp.ts"), "MCP server source");
 const sourceFiles = [
   "src/core/decision.ts",
   "src/core/constraint.ts",
   "src/core/evaluate-condition.ts",
   "src/model/schemas.ts",
-].map((path) => readFileSync(resolve(root, path), "utf8"));
+].map((path) => readText(resolve(root, path), `source file ${path}`));
 
 const repositoryUrl = "https://github.com/tetracoralla/decision-table";
 if (packageJson.name !== "@openadam/decision-table") failures.push("npm package identity differs");

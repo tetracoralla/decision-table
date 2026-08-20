@@ -11,7 +11,15 @@ import type {
   ValidationIssue,
 } from "../model/types.js";
 import { MODEL_LIMITS } from "../model/schemas.js";
+import {
+  epochToStrictDate,
+  epochToStrictDatetime,
+  parseStrictDate,
+  parseStrictDatetime,
+} from "../model/temporal.js";
 import { canonicalJson } from "./fingerprint.js";
+import { decimalOf } from "./facts.js";
+import { capValidationIssues } from "./runtime.js";
 
 interface Clause {
   path: string;
@@ -35,8 +43,12 @@ interface Domain {
 
 function comparisonValue(value: JsonPrimitive, type: InputType): Decimal | string | boolean | null {
   if (value === null) return null;
-  if (type === "integer" || type === "decimal") return new Decimal(value as string | number);
-  if (type === "date" || type === "datetime") return new Decimal(new Date(value as string).valueOf());
+  if (type === "integer" || type === "decimal") return decimalOf(value) ?? null;
+  if (type === "date" || type === "datetime") {
+    const parse = type === "date" ? parseStrictDate : parseStrictDatetime;
+    const epoch = parse(value as string);
+    return epoch === undefined ? null : new Decimal(epoch);
+  }
   return value as string | boolean;
 }
 
@@ -155,8 +167,8 @@ function domainIsSatisfiable(domain: Domain): boolean {
 function fromComparable(value: Decimal, type: InputType): JsonPrimitive {
   if (type === "integer") return value.toFixed(0);
   if (type === "decimal") return value.toString();
-  if (type === "date") return new Date(value.toNumber()).toISOString().slice(0, 10);
-  if (type === "datetime") return new Date(value.toNumber()).toISOString();
+  if (type === "date") return epochToStrictDate(value.toNumber());
+  if (type === "datetime") return epochToStrictDatetime(value.toNumber());
   return value.toString();
 }
 
@@ -204,15 +216,7 @@ function writePath(target: JsonObject, path: string, value: JsonPrimitive): void
   if (leaf) cursor[leaf] = value;
 }
 
-function overlapExample(
-  left: Condition,
-  right: Condition,
-  inputs: Map<string, InputDefinition>,
-): JsonObject | null {
-  const leftClauses = clausesFor(left, inputs);
-  const rightClauses = clausesFor(right, inputs);
-  if (!leftClauses || !rightClauses) return null;
-
+function overlapExample(leftClauses: Clause[], rightClauses: Clause[]): JsonObject | null {
   const merged = buildDomains([...leftClauses, ...rightClauses]);
   const example: JsonObject = {};
   for (const [path, domain] of merged) {
@@ -227,12 +231,16 @@ export function analyzeDecisionRules(ruleset: DecisionRuleset): ValidationIssue[
   const issues: ValidationIssue[] = [];
   let truncated = false;
   const inputs = new Map(ruleset.inputs.map((input) => [input.path, input]));
+  // Canonical forms and simple clauses are computed once per rule; the pair
+  // loop below then only compares strings and reuses clause arrays.
+  const canonical = ruleset.rules.map((rule) => canonicalJson(rule.when as never));
+  const clausesByRule = ruleset.rules.map((rule) => clausesFor(rule.when, inputs));
 
   analysis:
   for (let index = 0; index < ruleset.rules.length; index += 1) {
     const rule = ruleset.rules[index];
     if (!rule) continue;
-    const clauses = clausesFor(rule.when, inputs);
+    const clauses = clausesByRule[index];
     if (clauses) {
       const domains = buildDomains(clauses);
       if ([...domains.values()].some((domain) => !domainIsSatisfiable(domain))) {
@@ -252,7 +260,7 @@ export function analyzeDecisionRules(ruleset: DecisionRuleset): ValidationIssue[
     for (let otherIndex = index + 1; otherIndex < ruleset.rules.length; otherIndex += 1) {
       const other = ruleset.rules[otherIndex];
       if (!other) continue;
-      if (canonicalJson(rule.when as never) === canonicalJson(other.when as never)) {
+      if (canonical[index] === canonical[otherIndex]) {
         issues.push({
           severity: ruleset.hitPolicy === "unique" ? "error" : "warning",
           code: ruleset.hitPolicy === "first" ? "UNREACHABLE_RULE" : "DUPLICATE_RULE_CONDITION",
@@ -270,7 +278,9 @@ export function analyzeDecisionRules(ruleset: DecisionRuleset): ValidationIssue[
       }
 
       if (ruleset.hitPolicy !== "unique") continue;
-      const example = overlapExample(rule.when, other.when, inputs);
+      const otherClauses = clausesByRule[otherIndex];
+      if (!clauses || !otherClauses) continue;
+      const example = overlapExample(clauses, otherClauses);
       if (example) {
         issues.push({
           severity: "error",
@@ -287,12 +297,5 @@ export function analyzeDecisionRules(ruleset: DecisionRuleset): ValidationIssue[
     }
   }
 
-  if (truncated) {
-    issues[MODEL_LIMITS.maxValidationIssues - 1] = {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Static analysis stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`,
-    };
-  }
-  return issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  return capValidationIssues(issues, truncated, "Static analysis");
 }

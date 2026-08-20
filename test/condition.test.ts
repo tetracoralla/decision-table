@@ -53,4 +53,13 @@ describe("three-valued condition evaluation", () => {
       evaluateCondition(compare("value", "eq", "é"), { value: "e\u0301" }, stringInputs).truth,
     ).toBe("FALSE");
   });
+  it("returns a tri-state instead of throwing on malformed numeric or date operands", () => {
+    const numericInputs = [input("n", "integer")];
+    expect(evaluateCondition(compare("n", "eq", 3), { n: "abc" }, numericInputs).truth).toBe("FALSE");
+    expect(evaluateCondition(compare("n", "neq", 3), { n: "abc" }, numericInputs).truth).toBe("TRUE");
+
+    const dateInputs = [input("d", "date")];
+    expect(evaluateCondition(compare("d", "eq", "2024-01-01"), { d: "2024-02-30" }, dateInputs).truth).toBe("FALSE");
+    expect(evaluateCondition(compare("d", "neq", "2024-01-01"), { d: "2024-02-30" }, dateInputs).truth).toBe("TRUE");
+  });
 });

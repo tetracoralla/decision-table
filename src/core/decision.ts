@@ -3,7 +3,9 @@ import type {
   DecisionRule,
   EvaluateDecisionRequest,
   Explanation,
+  InputDefinition,
   JsonValue,
+  RulesetIdentity,
 } from "../model/types.js";
 import { evaluateCondition } from "./evaluate-condition.js";
 import { validateContext } from "./facts.js";
@@ -11,8 +13,11 @@ import { identifyRuleset } from "./fingerprint.js";
 import {
   effectiveWindowError,
   evaluationTime,
-  limitResultErrors,
+  fingerprintMismatchError,
+  invalidRulesetErrors,
   missingInputs,
+  requiredMissingMap,
+  versionMismatchError,
 } from "./runtime.js";
 import { validateRuleset } from "./validate.js";
 
@@ -29,12 +34,12 @@ function explanations(rules: DecisionRule[]): Array<Explanation & { ruleId: stri
 }
 
 function resultBase(
-  request: EvaluateDecisionRequest,
+  identity: RulesetIdentity,
   evaluatedAt: string,
 ): Omit<DecisionResult, "status"> {
   return {
     kind: "decision_result",
-    ruleset: identifyRuleset(request.ruleset),
+    ruleset: identity,
     evaluatedAt,
     matchedRules: [],
     missingInputs: [],
@@ -58,41 +63,32 @@ function decisionFrom(
 
 function missingForRules(
   evaluated: EvaluatedRule[],
-  request: EvaluateDecisionRequest,
-  evaluatedAt: string,
+  base: Omit<DecisionResult, "status">,
+  inputs: InputDefinition[],
 ): DecisionResult {
   const paths = new Map<string, Set<string>>();
   for (const item of evaluated) {
     if (item.truth === "UNKNOWN") paths.set(item.rule.id, item.missing);
   }
-  const base = resultBase(request, evaluatedAt);
   const matched = evaluated.filter((item) => item.truth === "TRUE").map((item) => item.rule);
   return {
     ...base,
     status: "insufficient_input",
     matchedRules: matched.map((rule) => rule.id),
     explanations: explanations(matched),
-    missingInputs: missingInputs(paths, request.ruleset.inputs),
+    missingInputs: missingInputs(paths, inputs),
   };
 }
 
 export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResult {
   const evaluatedAt = evaluationTime(request.asOf);
-  const base = resultBase(request, evaluatedAt);
   const validation = validateRuleset(request.ruleset);
+  const base = resultBase(validation.ruleset ?? identifyRuleset(request.ruleset), evaluatedAt);
   if (validation.status === "invalid") {
     return {
       ...base,
       status: "invalid_ruleset",
-      errors: limitResultErrors(
-        validation.issues
-          .filter((issue) => issue.severity === "error")
-          .map((issue) => ({
-            code: issue.code,
-            message: issue.message,
-            ...(issue.paths?.[0] ? { path: issue.paths[0] } : {}),
-          })),
-      ),
+      errors: invalidRulesetErrors(validation.issues),
     };
   }
 
@@ -100,12 +96,7 @@ export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResu
     return {
       ...base,
       status: "version_mismatch",
-      errors: [
-        {
-          code: "RULESET_VERSION_MISMATCH",
-          message: `Expected version '${request.expectedVersion}' but received '${request.ruleset.version}'.`,
-        },
-      ],
+      errors: [versionMismatchError(request.expectedVersion, request.ruleset.version)],
     };
   }
 
@@ -113,12 +104,7 @@ export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResu
     return {
       ...base,
       status: "fingerprint_mismatch",
-      errors: [
-        {
-          code: "RULESET_FINGERPRINT_MISMATCH",
-          message: `Expected fingerprint '${request.expectedFingerprint}' but received '${base.ruleset.fingerprint}'.`,
-        },
-      ],
+      errors: [fingerprintMismatchError(request.expectedFingerprint, base.ruleset.fingerprint)],
     };
   }
 
@@ -132,28 +118,33 @@ export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResu
     return { ...base, status: "invalid_input", errors: contextCheck.errors };
   }
   if (contextCheck.missingRequired.length > 0) {
-    const required = new Map([
-      ["$schema", new Set(contextCheck.missingRequired.map((input) => input.path))],
-    ]);
     return {
       ...base,
       status: "insufficient_input",
-      missingInputs: missingInputs(required, request.ruleset.inputs),
+      missingInputs: missingInputs(
+        requiredMissingMap(contextCheck.missingRequired),
+        request.ruleset.inputs,
+      ),
     };
+  }
+
+  const definitions = new Map(request.ruleset.inputs.map((input) => [input.path, input]));
+
+  if (request.ruleset.hitPolicy === "first") {
+    for (const rule of request.ruleset.rules) {
+      const evaluation = evaluateCondition(rule.when, request.facts, definitions);
+      if (evaluation.truth === "UNKNOWN") {
+        return missingForRules([{ rule, ...evaluation }], base, request.ruleset.inputs);
+      }
+      if (evaluation.truth === "TRUE") return decisionFrom(base, rule);
+    }
+    return { ...base, status: "no_match" };
   }
 
   const evaluated: EvaluatedRule[] = request.ruleset.rules.map((rule) => ({
     rule,
-    ...evaluateCondition(rule.when, request.facts, request.ruleset.inputs),
+    ...evaluateCondition(rule.when, request.facts, definitions),
   }));
-
-  if (request.ruleset.hitPolicy === "first") {
-    for (const item of evaluated) {
-      if (item.truth === "UNKNOWN") return missingForRules([item], request, evaluatedAt);
-      if (item.truth === "TRUE") return decisionFrom(base, item.rule);
-    }
-    return { ...base, status: "no_match" };
-  }
 
   const matched = evaluated.filter((item) => item.truth === "TRUE");
   const unknown = evaluated.filter((item) => item.truth === "UNKNOWN");
@@ -173,13 +164,13 @@ export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResu
         ],
       };
     }
-    if (unknown.length > 0) return missingForRules(evaluated, request, evaluatedAt);
+    if (unknown.length > 0) return missingForRules(evaluated, base, request.ruleset.inputs);
     if (matched[0]) return decisionFrom(base, matched[0].rule);
     return { ...base, status: "no_match" };
   }
 
   if (request.ruleset.hitPolicy === "collect") {
-    if (unknown.length > 0) return missingForRules(evaluated, request, evaluatedAt);
+    if (unknown.length > 0) return missingForRules(evaluated, base, request.ruleset.inputs);
     if (matched.length === 0) return { ...base, status: "no_match" };
     return {
       ...base,
@@ -198,7 +189,7 @@ export function evaluateDecision(request: EvaluateDecisionRequest): DecisionResu
     (item) => (item.rule.priority as number) >= highestMatchedPriority,
   );
   if (consequentialUnknown.length > 0) {
-    return missingForRules([...matched, ...consequentialUnknown], request, evaluatedAt);
+    return missingForRules([...matched, ...consequentialUnknown], base, request.ruleset.inputs);
   }
   if (matched.length === 0) return { ...base, status: "no_match" };
   const winners = matched.filter((item) => item.rule.priority === highestMatchedPriority);

@@ -34,6 +34,21 @@ describe("constraint checking", () => {
     ]);
   });
 
+  it("does not report a provided required candidate field as missing", () => {
+    const ruleset = constraintRuleset({
+      inputs: [
+        input("candidate.amount", "decimal", true),
+        input("facts.approved", "boolean", true),
+      ],
+    });
+
+    const result = checkConstraints({ ruleset, candidate: { amount: "15000" }, facts: {} });
+    expect(result.status).toBe("insufficient_input");
+    expect(result.missingInputs).toEqual([
+      { path: "facts.approved", type: "boolean", requiredBy: ["$schema"] },
+    ]);
+  });
+
   it("does not require facts for a constraint whose activation is false", () => {
     const ruleset = constraintRuleset({
       inputs: [

@@ -1,10 +1,6 @@
 import type * as z from "zod/v4";
 
-import {
-  ConditionSchema,
-  MODEL_LIMITS,
-  RulesetSchema,
-} from "../model/schemas.js";
+import { MODEL_LIMITS, RulesetSchema } from "../model/schemas.js";
 import type {
   Condition,
   InputDefinition,
@@ -15,6 +11,7 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "../model/types.js";
+import { capValidationIssues } from "./runtime.js";
 import { valueMatchesType } from "./facts.js";
 import { identifyRuleset } from "./fingerprint.js";
 import { parseStrictDatetime } from "../model/temporal.js";
@@ -27,15 +24,7 @@ function zodIssues(error: z.ZodError): ValidationIssue[] {
     message: issue.message,
     paths: [issue.path.join(".") || "$"],
   }));
-  if (issues.length <= MODEL_LIMITS.maxValidationIssues) return issues;
-  return [
-    ...issues.slice(0, MODEL_LIMITS.maxValidationIssues - 1),
-    {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Schema validation stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`,
-    },
-  ];
+  return capValidationIssues(issues, issues.length > MODEL_LIMITS.maxValidationIssues, "Schema validation");
 }
 
 function visitCondition(
@@ -85,7 +74,6 @@ function validateConditionSemantics(
   visitCondition(condition, (node, depth) => {
     nodes += 1;
     deepest = Math.max(deepest, depth);
-    if (issues.length >= MODEL_LIMITS.maxValidationIssues) return;
 
     if (node.op === "exists") {
       if (!definitions.has(node.path)) {
@@ -219,14 +207,13 @@ function validateConditionSemantics(
   return { issues, nodes };
 }
 
-function semanticIssues(ruleset: Ruleset): ValidationIssue[] {
+interface SemanticAnalysis {
+  issues: ValidationIssue[];
+  errorSeen: boolean;
+}
+
+function semanticIssues(ruleset: Ruleset): SemanticAnalysis {
   const issues: ValidationIssue[] = [];
-  let truncated = false;
-  const appendIssues = (next: ValidationIssue[]): void => {
-    const remaining = MODEL_LIMITS.maxValidationIssues - issues.length;
-    if (next.length > remaining) truncated = true;
-    if (remaining > 0) issues.push(...next.slice(0, remaining));
-  };
   const inputPaths = new Set<string>();
   for (const input of ruleset.inputs) {
     if (inputPaths.has(input.path)) {
@@ -287,7 +274,7 @@ function semanticIssues(ruleset: Ruleset): ValidationIssue[] {
     ids.add(owner.id);
     for (const condition of owner.conditions) {
       const analysis = validateConditionSemantics(condition, ruleset.inputs, owner.id);
-      appendIssues(analysis.issues);
+      issues.push(...analysis.issues);
       totalConditionNodes += analysis.nodes;
     }
   }
@@ -319,7 +306,7 @@ function semanticIssues(ruleset: Ruleset): ValidationIssue[] {
       });
     }
     if (!issues.some((issue) => issue.severity === "error")) {
-      appendIssues(analyzeDecisionRules(ruleset));
+      issues.push(...analyzeDecisionRules(ruleset));
     }
   } else {
     const inputByPath = new Map(ruleset.inputs.map((input) => [input.path, input]));
@@ -359,23 +346,11 @@ function semanticIssues(ruleset: Ruleset): ValidationIssue[] {
     }
   }
 
-  if (issues.length > MODEL_LIMITS.maxValidationIssues) {
-    truncated = true;
-    issues.length = MODEL_LIMITS.maxValidationIssues;
-  }
-  if (truncated) {
-    const marker: ValidationIssue = {
-      severity: "warning",
-      code: "VALIDATION_ISSUES_TRUNCATED",
-      message: `Validation stopped returning issues at ${MODEL_LIMITS.maxValidationIssues}.`,
-    };
-    if (issues.length >= MODEL_LIMITS.maxValidationIssues) {
-      issues[MODEL_LIMITS.maxValidationIssues - 1] = marker;
-    } else {
-      issues.push(marker);
-    }
-  }
-  return issues.slice(0, MODEL_LIMITS.maxValidationIssues);
+  const errorSeen = issues.some((issue) => issue.severity === "error");
+  return {
+    issues: capValidationIssues(issues, issues.length > MODEL_LIMITS.maxValidationIssues, "Validation"),
+    errorSeen,
+  };
 }
 
 export function validateRuleset(input: unknown): ValidationResult {
@@ -384,15 +359,11 @@ export function validateRuleset(input: unknown): ValidationResult {
     return { kind: "validation_result", status: "invalid", issues: zodIssues(parsed.error) };
   }
 
-  const issues = semanticIssues(parsed.data);
+  const analysis = semanticIssues(parsed.data);
   return {
     kind: "validation_result",
-    status: issues.some((issue) => issue.severity === "error") ? "invalid" : "valid",
+    status: analysis.errorSeen ? "invalid" : "valid",
     ruleset: identifyRuleset(parsed.data),
-    issues,
+    issues: analysis.issues,
   };
-}
-
-export function assertConditionSchema(input: unknown): Condition {
-  return ConditionSchema.parse(input);
 }

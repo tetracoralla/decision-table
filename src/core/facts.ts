@@ -4,9 +4,11 @@ import type {
   InputDefinition,
   InputType,
   JsonObject,
+  JsonPrimitive,
   JsonValue,
   ResultError,
 } from "../model/types.js";
+import { MODEL_LIMITS } from "../model/schemas.js";
 import { isStrictDate, isStrictDatetime } from "../model/temporal.js";
 import { limitResultErrors } from "./runtime.js";
 
@@ -16,6 +18,17 @@ const INTEGER_PATTERN = /^[+-]?(?:0|[1-9]\d*)$/;
 export interface PathRead {
   found: boolean;
   value?: JsonValue;
+}
+
+/** Parses a primitive as Decimal, or undefined when it is not a finite number. */
+export function decimalOf(value: JsonPrimitive): Decimal | undefined {
+  if (typeof value === "string" && !DECIMAL_PATTERN.test(value)) return undefined;
+  try {
+    const decimal = new Decimal(value as string | number);
+    return decimal.isFinite() ? decimal : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function readPath(context: JsonObject, path: string): PathRead {
@@ -35,23 +48,40 @@ export function readPath(context: JsonObject, path: string): PathRead {
   return { found: true, value: cursor };
 }
 
-export function listLeafPaths(context: JsonObject): string[] {
-  const result: string[] = [];
+export interface ContextLeaves {
+  leaves: Array<{ path: string; value: JsonValue }>;
+  /** Key paths (prefix + dotted key) whose flat key can never be read as a fact path. */
+  ambiguousKeys: string[];
+  overNodeLimit: boolean;
+}
+
+export function collectLeaves(context: JsonObject): ContextLeaves {
+  const leaves: ContextLeaves["leaves"] = [];
+  const ambiguousKeys: string[] = [];
+  let nodes = 0;
+  let overNodeLimit = false;
   const pending: Array<{ value: JsonValue; prefix: string }> = [{ value: context, prefix: "" }];
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) break;
+    nodes += 1;
+    if (nodes > MODEL_LIMITS.maxJsonNodes) {
+      overNodeLimit = true;
+      break;
+    }
     if (current.value !== null && !Array.isArray(current.value) && typeof current.value === "object") {
       const entries = Object.entries(current.value);
-      if (entries.length === 0 && current.prefix) result.push(current.prefix);
+      if (entries.length === 0 && current.prefix) leaves.push({ path: current.prefix, value: current.value });
       for (const [key, child] of entries) {
+        if (key.includes(".")) ambiguousKeys.push(current.prefix ? `${current.prefix}.${key}` : key);
         pending.push({ value: child, prefix: current.prefix ? `${current.prefix}.${key}` : key });
       }
     } else if (current.prefix) {
-      result.push(current.prefix);
+      leaves.push({ path: current.prefix, value: current.value });
     }
   }
-  return result.sort();
+  leaves.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return { leaves, ambiguousKeys, overNodeLimit };
 }
 
 function isSupportedDecimal(value: string): boolean {
@@ -108,19 +138,37 @@ export function validateContext(
   const errors: ResultError[] = [];
   const missingRequired: InputDefinition[] = [];
 
-  for (const actualPath of listLeafPaths(context)) {
-    const actual = readPath(context, actualPath);
+  const collected = collectLeaves(context);
+  if (collected.overNodeLimit) {
+    return {
+      errors: limitResultErrors([
+        {
+          code: "FACT_NODE_LIMIT",
+          message: `Facts exceed ${MODEL_LIMITS.maxJsonNodes} JSON nodes.`,
+        },
+      ]),
+      missingRequired,
+    };
+  }
+  for (const key of collected.ambiguousKeys) {
+    errors.push({
+      code: "AMBIGUOUS_FACT_KEY",
+      message: `Fact object key '${key}' contains '.'; express dotted paths with nested objects.`,
+      path: key,
+    });
+  }
+
+  for (const leaf of collected.leaves) {
     const isEmptyStructuralObject =
-      structuralPrefixes.has(actualPath) &&
-      actual.found &&
-      actual.value !== null &&
-      !Array.isArray(actual.value) &&
-      typeof actual.value === "object";
-    if (!byPath.has(actualPath) && !isEmptyStructuralObject) {
+      structuralPrefixes.has(leaf.path) &&
+      leaf.value !== null &&
+      !Array.isArray(leaf.value) &&
+      typeof leaf.value === "object";
+    if (!byPath.has(leaf.path) && !isEmptyStructuralObject) {
       errors.push({
         code: "UNKNOWN_FACT",
-        message: `Fact path '${actualPath}' is not declared by the ruleset.`,
-        path: actualPath,
+        message: `Fact path '${leaf.path}' is not declared by the ruleset.`,
+        path: leaf.path,
       });
     }
   }

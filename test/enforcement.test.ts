@@ -116,4 +116,90 @@ describe("approved constraint checking and guarded execution", () => {
     await expect(execution).resolves.toMatchObject({ status: "executed", value: "receipt" });
     expect(executedAmount).toBe("15000");
   });
+
+  it("does not execute a trusted-context callback that fires after the guard completed", async () => {
+    const ruleset = constraintRuleset();
+    const checker = createApprovedConstraintChecker(
+      { ruleset, expected: identifyRuleset(ruleset) },
+      () => "2026-08-13T00:00:00.000Z",
+    );
+    let sideEffects = 0;
+    let lateInvocations: Array<Promise<unknown>> = [];
+    const guard = createConstraintExecutionGuard(checker, async (_action, run) => {
+      // Two fire-and-forget invocations after the guard returns: neither may
+      // run the action, and neither may reject into an unwatched promise.
+      setTimeout(() => {
+        const late = () =>
+          run({
+            candidate: { amount: "15000" },
+            facts: { approved: true },
+            async execute() {
+              sideEffects += 1;
+              return "late";
+            },
+          });
+        lateInvocations = [late(), late()];
+      }, 10);
+    });
+
+    await expect(guard.execute({ amount: "15000" })).rejects.toThrow(
+      ApprovedConstraintConfigurationError,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(sideEffects).toBe(0);
+    for (const invocation of lateInvocations) {
+      await expect(invocation).resolves.toBeUndefined();
+    }
+  });
+
+  it("joins an invoked continuation before reporting the guarded outcome", async () => {
+    const ruleset = constraintRuleset();
+    const checker = createApprovedConstraintChecker(
+      { ruleset, expected: identifyRuleset(ruleset) },
+      () => "2026-08-13T00:00:00.000Z",
+    );
+    let sideEffects = 0;
+    const guard = createConstraintExecutionGuard(checker, async (_action, run) => {
+      // A host bug discarded the promise. The guard must still join it instead
+      // of returning an error while the side effect completes in the background.
+      void run({
+        candidate: { amount: "15000" },
+        facts: { approved: true },
+        async execute() {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          sideEffects += 1;
+          return "receipt";
+        },
+      });
+    });
+
+    await expect(guard.execute({ amount: "15000" })).resolves.toMatchObject({
+      status: "executed",
+      value: "receipt",
+    });
+    expect(sideEffects).toBe(1);
+  });
+
+  it("does not let a trusted-runner error hide a completed side effect", async () => {
+    const ruleset = constraintRuleset();
+    const checker = createApprovedConstraintChecker(
+      { ruleset, expected: identifyRuleset(ruleset) },
+      () => "2026-08-13T00:00:00.000Z",
+    );
+    const guard = createConstraintExecutionGuard(checker, async (_action, run) => {
+      await run({
+        candidate: { amount: "15000" },
+        facts: { approved: true },
+        async execute() {
+          return "committed";
+        },
+      });
+      throw new Error("runner failed after commit");
+    });
+
+    await expect(guard.execute({ amount: "15000" })).resolves.toMatchObject({
+      status: "executed",
+      value: "committed",
+    });
+  });
 });

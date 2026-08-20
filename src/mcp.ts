@@ -23,6 +23,7 @@ import {
   ValidationResultSchema,
 } from "./model/schemas.js";
 import type { ConstraintResult, DecisionResult, ValidationResult } from "./model/types.js";
+import { asMcpSchema } from "./mcp-schema.js";
 import { presentConstraint, presentDecision, presentValidation } from "./presentation.js";
 
 export const TOOL_NAMES = ["decision.evaluate", "decision.validate", "constraint.check"] as const;
@@ -34,6 +35,16 @@ export interface ServerOptions {
 
 type ToolResult = DecisionResult | ConstraintResult | ValidationResult;
 
+const mcpSchemas = {
+  approvedConstraintCheckRequest: asMcpSchema(ApprovedConstraintCheckRequestSchema),
+  checkConstraintsRequest: asMcpSchema(CheckConstraintsRequestSchema),
+  constraintResult: asMcpSchema(ConstraintResultSchema),
+  decisionResult: asMcpSchema(DecisionResultSchema),
+  evaluateDecisionRequest: asMcpSchema(EvaluateDecisionRequestSchema),
+  validationRequest: asMcpSchema(ValidationRequestSchema),
+  validationResult: asMcpSchema(ValidationResultSchema),
+};
+
 function toolError(code: string, message: string) {
   const payload = { error: { code, message } };
   return {
@@ -44,14 +55,14 @@ function toolError(code: string, message: string) {
 }
 
 function respond(result: ToolResult, summary: string) {
-  const serialized = JSON.stringify(result);
-  if (Buffer.byteLength(serialized) > MODEL_LIMITS.maxResponseBytes) {
-    return toolError("RESPONSE_TOO_LARGE", "Result exceeds the response byte limit.");
-  }
-  return {
+  const response = {
     content: [{ type: "text" as const, text: summary }],
     structuredContent: result as unknown as Record<string, unknown>,
   };
+  if (Buffer.byteLength(JSON.stringify(response)) > MODEL_LIMITS.maxResponseBytes) {
+    return toolError("RESPONSE_TOO_LARGE", "Result exceeds the response byte limit.");
+  }
+  return response;
 }
 
 function requestWithinLimit(input: unknown): boolean {
@@ -60,7 +71,7 @@ function requestWithinLimit(input: unknown): boolean {
 
 export function createServer(options: ServerOptions = {}): McpServer {
   const server = new McpServer(
-    { name: "decision-table", version: "0.1.0" },
+    { name: "decision-table", version: "0.1.1" },
     {
       instructions:
         options.approvedConstraintChecker
@@ -75,8 +86,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
       title: "Evaluate decision",
       description:
         "Deterministically evaluate an inline versioned decision ruleset from explicit facts; returns the decision, conflicts, or exact missing inputs.",
-      inputSchema: EvaluateDecisionRequestSchema,
-      outputSchema: DecisionResultSchema,
+      inputSchema: mcpSchemas.evaluateDecisionRequest,
+      outputSchema: mcpSchemas.decisionResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (request) => {
@@ -92,8 +103,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
       title: "Validate ruleset",
       description:
         "Validate an inline decision or constraint ruleset before use; reports strict schema errors and conservative proven overlap or shadowing.",
-      inputSchema: ValidationRequestSchema,
-      outputSchema: ValidationResultSchema,
+      inputSchema: mcpSchemas.validationRequest,
+      outputSchema: mcpSchemas.validationResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async ({ ruleset }) => {
@@ -109,8 +120,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
       title: "Check constraints",
       description:
         "Deterministically check a proposed candidate against inline versioned constraints; returns violations, missing inputs, and configured repair hints.",
-      inputSchema: CheckConstraintsRequestSchema,
-      outputSchema: ConstraintResultSchema,
+      inputSchema: mcpSchemas.checkConstraintsRequest,
+      outputSchema: mcpSchemas.constraintResult,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (request) => {
@@ -128,8 +139,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
         title: "Check approved constraints",
         description:
           "Read-only check against the exact host-bound approved ruleset. The caller cannot replace policy or time, but still supplies candidate and facts; the host must verify them before any governed execution.",
-        inputSchema: ApprovedConstraintCheckRequestSchema,
-        outputSchema: ConstraintResultSchema,
+        inputSchema: mcpSchemas.approvedConstraintCheckRequest,
+        outputSchema: mcpSchemas.constraintResult,
         annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
       },
       async (request) => {
@@ -168,6 +179,13 @@ function isDirectEntry(): boolean {
 }
 
 if (isDirectEntry()) {
-  void serveStdio(createConfiguredServer);
+  serveStdio(createConfiguredServer, {
+    // Without this callback the SDK swallows out-of-band errors, including
+    // startup configuration failures, and the client only sees a generic
+    // internal error with no diagnostic on stderr.
+    onerror: (error) => {
+      console.error(`decision-table MCP server error: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
   console.error("decision-table MCP server running on stdio");
 }

@@ -49,3 +49,19 @@ export function parseStrictDate(value: string): number | undefined {
   const epochMilliseconds = Date.parse(`${value}T00:00:00.000Z`);
   return Number.isFinite(epochMilliseconds) ? epochMilliseconds : undefined;
 }
+
+function padded(component: number, width = 2): string {
+  return String(Math.abs(component)).padStart(width, "0");
+}
+
+export function epochToStrictDate(epochMilliseconds: number): string {
+  const date = new Date(epochMilliseconds);
+  const sign = date.getUTCFullYear() < 0 ? "-" : "";
+  return `${sign}${padded(date.getUTCFullYear(), 4)}-${padded(date.getUTCMonth() + 1)}-${padded(date.getUTCDate())}`;
+}
+
+export function epochToStrictDatetime(epochMilliseconds: number): string {
+  const date = new Date(epochMilliseconds);
+  const time = `${padded(date.getUTCHours())}:${padded(date.getUTCMinutes())}:${padded(date.getUTCSeconds())}.${padded(date.getUTCMilliseconds(), 3)}`;
+  return `${epochToStrictDate(epochMilliseconds)}T${time}Z`;
+}

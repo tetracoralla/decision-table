@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { evaluateDecision } from "../src/core/decision.js";
 import { validateRuleset } from "../src/core/validate.js";
+import { EvaluateDecisionRequestSchema } from "../src/model/schemas.js";
 import type { ConstraintRuleset } from "../src/model/types.js";
-import { compare, decisionRuleset, input } from "./fixtures.js";
+import { compare, decisionRuleset, input, literal } from "./fixtures.js";
 
 describe("ruleset validation", () => {
   it("rejects unknown model fields", () => {
     const result = validateRuleset({ ...decisionRuleset(), sourceOfTruth: "somewhere" });
     expect(result.status).toBe("invalid");
     expect(result.issues[0]?.code).toBe("SCHEMA_INVALID");
+    expect(result.issues[0]?.paths).toEqual(["$"]);
+    expect(result.issues[0]?.message).toContain("sourceOfTruth");
   });
 
   it("rejects undeclared paths and decimal literals encoded as numbers", () => {
@@ -169,5 +173,98 @@ describe("ruleset validation", () => {
     );
     expect(result.status).toBe("valid");
     expect(result.issues.some((issue) => issue.code === "UNREACHABLE_RULE")).toBe(true);
+  });
+
+  it("keeps checking literal types after the issue budget fills with warnings", () => {
+    const groups = Array.from({ length: 11 }, () => ({
+      op: "all" as const,
+      conditions: Array.from({ length: 95 }, () => ({
+        op: "compare" as const,
+        left: literal(1),
+        comparator: "eq" as const,
+        right: literal(1),
+      })),
+    }));
+    // 1,045 constant-compare warnings come first; the malformed literal comes last,
+    // exactly where a per-condition issue budget used to stop looking.
+    const when = {
+      op: "all" as const,
+      conditions: [...groups, compare("amount", "gt", "not-a-number")],
+    };
+    const ruleset = decisionRuleset({
+      inputs: [input("amount", "integer")],
+      rules: [{ id: "R1", when, then: { decision: "x" } }],
+    });
+
+    const result = validateRuleset(ruleset);
+    expect(result.status).toBe("invalid");
+    expect(result.issues.some((issue) => issue.code === "INVALID_LITERAL_TYPE")).toBe(false);
+    expect(result.issues.at(-1)?.code).toBe("VALIDATION_ISSUES_TRUNCATED");
+
+    const evaluated = evaluateDecision({ ruleset, facts: { amount: 5 } });
+    expect(evaluated.status).toBe("invalid_ruleset");
+    expect(evaluated.errors[0]?.code).toBe("VALIDATION_ISSUES_TRUNCATED");
+  });
+
+  it("does not prove overlap through a date witness outside the strict date range", () => {
+    const ruleset = decisionRuleset({
+      inputs: [input("d", "date"), input("s", "string")],
+      hitPolicy: "unique",
+      rules: [
+        { id: "R1", when: compare("d", "gt", "9999-12-31"), then: { decision: "never" } },
+        {
+          id: "R2",
+          when: { op: "all", conditions: [compare("d", "gt", "2020-01-01"), compare("s", "eq", "x")] },
+          then: { decision: "recent" },
+        },
+      ],
+    });
+    const result = validateRuleset(ruleset);
+    expect(result.issues.some((issue) => issue.code === "RULE_OVERLAP")).toBe(false);
+  });
+
+  it("proves overlap between pre-year-1000 date bounds with a valid witness", () => {
+    const ruleset = decisionRuleset({
+      inputs: [input("d", "date")],
+      hitPolicy: "unique",
+      rules: [
+        { id: "R1", when: compare("d", "gte", "0500-01-01"), then: { decision: "a" } },
+        { id: "R2", when: compare("d", "lte", "0600-01-01"), then: { decision: "b" } },
+      ],
+    });
+    const overlap = validateRuleset(ruleset).issues.find((issue) => issue.code === "RULE_OVERLAP");
+    expect(overlap).toMatchObject({ example: { d: "0500-01-01" } });
+  });
+
+  it("rejects reserved and dotted keys in context objects at the schema layer", () => {
+    const protoFacts = JSON.parse('{"amount": "10000", "__proto__": {"injected": 1}}');
+    const protoParse = EvaluateDecisionRequestSchema.safeParse({
+      ruleset: decisionRuleset(),
+      facts: protoFacts,
+    });
+    expect(protoParse.success).toBe(false);
+    expect(protoParse.success === false && protoParse.error.issues.some((issue) => issue.message.includes("__proto__"))).toBe(true);
+
+    const dottedParse = EvaluateDecisionRequestSchema.safeParse({
+      ruleset: decisionRuleset(),
+      facts: { "a.b": 1 },
+    });
+    expect(dottedParse.success).toBe(false);
+    expect(dottedParse.success === false && dottedParse.error.issues.some((issue) => issue.message.includes("'.'"))).toBe(true);
+  });
+
+  it("applies the JSON node budget cumulatively to the complete ruleset and request", () => {
+    const ruleset = decisionRuleset({
+      rules: Array.from({ length: 22 }, (_, index) => ({
+        id: `R${index}`,
+        when: compare("amount", "gt", "0"),
+        then: { decision: Array.from({ length: 950 }, () => null) },
+      })),
+    });
+    expect(validateRuleset(ruleset)).toMatchObject({
+      status: "invalid",
+      issues: expect.arrayContaining([expect.objectContaining({ code: "SCHEMA_INVALID" })]),
+    });
+    expect(EvaluateDecisionRequestSchema.safeParse({ ruleset, facts: { amount: "1" } }).success).toBe(false);
   });
 });

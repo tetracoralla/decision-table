@@ -1,6 +1,5 @@
-import { Decimal } from "decimal.js";
-
 import type {
+  Comparator,
   Condition,
   InputDefinition,
   InputType,
@@ -9,7 +8,7 @@ import type {
   Operand,
 } from "../model/types.js";
 import { parseStrictDate, parseStrictDatetime } from "../model/temporal.js";
-import { readPath } from "./facts.js";
+import { decimalOf, readPath } from "./facts.js";
 import { negate, type TruthValue } from "./tri-state.js";
 
 export interface ConditionEvaluation {
@@ -23,6 +22,15 @@ interface ResolvedOperand {
   type?: InputType;
   missing?: string;
 }
+
+const COMPARATOR_TESTS: Record<Exclude<Comparator, "in">, (comparison: number) => boolean> = {
+  eq: (comparison) => comparison === 0,
+  neq: (comparison) => comparison !== 0,
+  gt: (comparison) => comparison > 0,
+  gte: (comparison) => comparison >= 0,
+  lt: (comparison) => comparison < 0,
+  lte: (comparison) => comparison <= 0,
+};
 
 function empty(truth: TruthValue): ConditionEvaluation {
   return { truth, missing: new Set() };
@@ -60,18 +68,21 @@ function inferType(left: ResolvedOperand, right: ResolvedOperand): InputType | u
 
 function compareScalar(left: JsonPrimitive, right: JsonPrimitive, type?: InputType): number {
   if (left === null || right === null) {
-    return left === right ? 0 : left === null ? -1 : 1;
+    return left === right ? 0 : -1;
   }
 
   if (type === "integer" || type === "decimal") {
-    return new Decimal(left as string | number).cmp(new Decimal(right as string | number));
+    const leftDecimal = decimalOf(left);
+    const rightDecimal = decimalOf(right);
+    if (leftDecimal === undefined || rightDecimal === undefined) return left === right ? 0 : -1;
+    return leftDecimal.cmp(rightDecimal);
   }
-  if (type === "date") {
-    return (parseStrictDate(left as string) as number) - (parseStrictDate(right as string) as number);
-  }
-  if (type === "datetime") {
-    return (parseStrictDatetime(left as string) as number) -
-      (parseStrictDatetime(right as string) as number);
+  if (type === "date" || type === "datetime") {
+    const parse = type === "date" ? parseStrictDate : parseStrictDatetime;
+    const leftEpoch = parse(String(left));
+    const rightEpoch = parse(String(right));
+    if (leftEpoch === undefined || rightEpoch === undefined) return left === right ? 0 : -1;
+    return leftEpoch - rightEpoch;
   }
   if (typeof left === "string" && typeof right === "string") {
     return left === right ? 0 : left < right ? -1 : 1;
@@ -118,28 +129,17 @@ function compareOperands(
     return { truth: "UNKNOWN", missing: new Set(nullFactPaths) };
   }
   const comparison = compareScalar(leftValue, rightValue, type);
-  const result =
-    condition.comparator === "eq"
-      ? comparison === 0
-      : condition.comparator === "neq"
-        ? comparison !== 0
-        : condition.comparator === "gt"
-          ? comparison > 0
-          : condition.comparator === "gte"
-            ? comparison >= 0
-            : condition.comparator === "lt"
-              ? comparison < 0
-              : comparison <= 0;
-
-  return empty(result ? "TRUE" : "FALSE");
+  const satisfied = COMPARATOR_TESTS[condition.comparator as Exclude<Comparator, "in">](comparison);
+  return empty(satisfied ? "TRUE" : "FALSE");
 }
 
 export function evaluateCondition(
   condition: Condition,
   context: JsonObject,
-  inputs: InputDefinition[],
+  inputs: InputDefinition[] | Map<string, InputDefinition>,
 ): ConditionEvaluation {
-  const definitions = new Map(inputs.map((input) => [input.path, input]));
+  const definitions =
+    inputs instanceof Map ? inputs : new Map(inputs.map((input) => [input.path, input]));
   return evaluate(condition, context, definitions);
 }
 
