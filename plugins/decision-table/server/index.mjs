@@ -24633,6 +24633,7 @@ function presentValidation(result) {
 // src/mcp.ts
 var TOOL_NAMES = ["decision.evaluate", "decision.validate", "constraint.check"];
 var APPROVED_CHECK_TOOL_NAME = "constraint.check_approved";
+var MCP_TRANSPORT_MAX_BUFFER_BYTES = MODEL_LIMITS.maxRequestBytes + 64 * 1024;
 var mcpSchemas = {
   approvedConstraintCheckRequest: asMcpSchema(ApprovedConstraintCheckRequestSchema),
   checkConstraintsRequest: asMcpSchema(CheckConstraintsRequestSchema),
@@ -24665,7 +24666,7 @@ function requestWithinLimit(input) {
 }
 function createServer(options = {}) {
   const server = new McpServer(
-    { name: "decision-table", version: "0.1.1" },
+    { name: "decision-table", version: "0.1.2" },
     {
       instructions: options.approvedConstraintChecker ? "Use constraint.check_approved to check candidate data against the host-bound approved ruleset. This remains a read-only check because the caller supplies candidate and facts; only a host-side execution guard can make it mandatory and source trusted facts. Use the inline tools only for advisory analysis." : "Use decision.evaluate for a business decision, decision.validate when a ruleset is created or changed, and constraint.check before an advisory candidate check. Missing input is not false; fetch only named missing facts and re-run. These read-only tools do not enforce external side effects."
     }
@@ -24757,8 +24758,14 @@ function isDirectEntry() {
     return false;
   }
 }
+function createBoundedStdioTransport(input = process.stdin, output = process.stdout) {
+  return new StdioServerTransport(input, output, {
+    maxBufferSize: MCP_TRANSPORT_MAX_BUFFER_BYTES
+  });
+}
 if (isDirectEntry()) {
   serveStdio(createConfiguredServer, {
+    transport: createBoundedStdioTransport(),
     // Without this callback the SDK swallows out-of-band errors, including
     // startup configuration failures, and the client only sees a generic
     // internal error with no diagnostic on stderr.
@@ -24770,24 +24777,8 @@ if (isDirectEntry()) {
 }
 export {
   APPROVED_CHECK_TOOL_NAME,
+  MCP_TRANSPORT_MAX_BUFFER_BYTES,
   TOOL_NAMES,
+  createBoundedStdioTransport,
   createServer
 };
-/*! Bundled license information:
-
-@modelcontextprotocol/server/dist/src-CX2iR2pK.mjs:
-  (*!
-  * content-type
-  * Copyright(c) 2015 Douglas Christopher Wilson
-  * MIT Licensed
-  *)
-
-decimal.js/decimal.mjs:
-  (*!
-   *  decimal.js v10.6.0
-   *  An arbitrary-precision Decimal type for JavaScript.
-   *  https://github.com/MikeMcl/decimal.js
-   *  Copyright (c) 2025 Michael Mclaughlin <M8ch88l@gmail.com>
-   *  MIT Licence
-   *)
-*/

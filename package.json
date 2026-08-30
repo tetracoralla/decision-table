@@ -1,6 +1,6 @@
 {
   "name": "@openadam/decision-table",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Deterministic decision and constraint primitives for AI agents.",
   "type": "module",
@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:plugin",
-    "build:plugin": "esbuild src/mcp.ts --bundle --platform=node --target=node20 --format=esm --outfile=plugins/decision-table/server/index.mjs",
+    "build:plugin": "node scripts/build-plugin.mjs",
     "check": "npm run typecheck && npm run test && npm run check:contracts && npm run check:plugin",
     "check:contracts": "node scripts/check-contracts.mjs",
     "check:plugin": "node scripts/check-plugin.mjs",

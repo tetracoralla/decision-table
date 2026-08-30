@@ -6,6 +6,15 @@ This repository owns a deterministic Agent-facing decision interface. It does
 not own workflows, business process orchestration, policy authoring by an LLM,
 general expression evaluation, optimization, or a visual rule editor.
 
+Read `docs/PRODUCT_MODEL.md` and `docs/REVIEW_CONTRACT.md` before changing or
+reviewing the product.
+
+A plain owner request to review, audit, 审核, or 复核 automatically invokes the
+complete review contract in read-only mode unless fixes are also requested.
+Treat it as the minimum scope, not a ceiling, and finish with `tools-dev
+workspace escalations` for shared contracts, installation, or resource risks;
+do not ask the owner to supply a separate checklist.
+
 The canonical model is `docs/PRODUCT_MODEL.md`; the executable Zod schemas in
 `src/model/schemas.ts` are the transport and runtime authority. Keep examples,
 CLI, MCP, and the Codex Skill on that one model.

@@ -8,6 +8,8 @@ const mcpPath = resolve(pluginRoot, ".mcp.json");
 const skillRoot = resolve(pluginRoot, "skills/use-decision-table");
 const skillPath = resolve(skillRoot, "SKILL.md");
 const skillMetadataPath = resolve(skillRoot, "agents/openai.yaml");
+const legalFiles = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"];
+const bundleLegalPath = resolve(pluginRoot, "server/index.mjs.LEGAL.txt");
 const failures = [];
 
 function readJson(path, label) {
@@ -61,6 +63,22 @@ if (!server || server.command !== "node" || server.cwd !== ".") {
 const serverEntry = server?.args?.[0];
 if (!serverEntry || !existsSync(resolve(pluginRoot, serverEntry))) {
   failures.push("built plugin MCP entry is missing");
+}
+for (const file of legalFiles) {
+  const rootPath = resolve(root, file);
+  const pluginPath = resolve(pluginRoot, file);
+  if (!existsSync(rootPath)) failures.push(`repository ${file} is missing`);
+  if (!existsSync(pluginPath)) failures.push(`standalone plugin ${file} is missing`);
+  if (
+    existsSync(rootPath) &&
+    existsSync(pluginPath) &&
+    readFileSync(rootPath, "utf8") !== readFileSync(pluginPath, "utf8")
+  ) {
+    failures.push(`standalone plugin ${file} differs from the repository copy`);
+  }
+}
+if (!existsSync(bundleLegalPath) || readFileSync(bundleLegalPath, "utf8").trim().length === 0) {
+  failures.push("standalone plugin bundle legal-comment file is missing or empty");
 }
 
 let skill = "";

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { McpServer } from "@modelcontextprotocol/server";
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 import { checkConstraints } from "./core/constraint.js";
 import { evaluateDecision } from "./core/decision.js";
@@ -28,6 +29,7 @@ import { presentConstraint, presentDecision, presentValidation } from "./present
 
 export const TOOL_NAMES = ["decision.evaluate", "decision.validate", "constraint.check"] as const;
 export const APPROVED_CHECK_TOOL_NAME = "constraint.check_approved" as const;
+export const MCP_TRANSPORT_MAX_BUFFER_BYTES = MODEL_LIMITS.maxRequestBytes + 64 * 1024;
 
 export interface ServerOptions {
   approvedConstraintChecker?: ApprovedConstraintChecker;
@@ -71,7 +73,7 @@ function requestWithinLimit(input: unknown): boolean {
 
 export function createServer(options: ServerOptions = {}): McpServer {
   const server = new McpServer(
-    { name: "decision-table", version: "0.1.1" },
+    { name: "decision-table", version: "0.1.2" },
     {
       instructions:
         options.approvedConstraintChecker
@@ -178,8 +180,18 @@ function isDirectEntry(): boolean {
   }
 }
 
+export function createBoundedStdioTransport(
+  input: Readable = process.stdin,
+  output: Writable = process.stdout,
+): StdioServerTransport {
+  return new StdioServerTransport(input, output, {
+    maxBufferSize: MCP_TRANSPORT_MAX_BUFFER_BYTES,
+  });
+}
+
 if (isDirectEntry()) {
   serveStdio(createConfiguredServer, {
+    transport: createBoundedStdioTransport(),
     // Without this callback the SDK swallows out-of-band errors, including
     // startup configuration failures, and the client only sees a generic
     // internal error with no diagnostic on stderr.

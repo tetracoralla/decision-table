@@ -82,6 +82,9 @@ if (!security.includes("private vulnerability reporting")) {
   failures.push("security policy omits private reporting path");
 }
 if (pluginJson.version !== packageJson.version) failures.push("plugin and package versions differ");
+if (!mcpSource.includes(`version: "${packageJson.version}"`)) {
+  failures.push("MCP server and package versions differ");
+}
 if (skill.includes("[TODO:")) failures.push("product Skill contains TODO placeholders");
 for (const name of ["decision.evaluate", "decision.validate", "constraint.check"]) {
   if (!mcpSource.includes(`\"${name}\"`)) failures.push(`missing public tool ${name}`);
