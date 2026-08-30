@@ -82,7 +82,10 @@ not as free metadata.
 - MCP measures the whole serialized request and the complete returned envelope,
   including its text summary. Oversized requests/results return stable bounded
   carrier errors; invalid domain data that fits the request returns a bounded
-  typed domain result where the tool contract permits it.
+  typed domain result where the tool contract permits it. The stdio transport
+  additionally caps each raw protocol message at 320 KiB, so whitespace or
+  envelope metadata cannot exploit the SDK's larger default read buffer before
+  the tool-argument budget runs.
 - Schema/validation errors are capped with an explicit truncation marker. Do
   not let a long caller value, Zod diagnostic, rule message, or repair payload
   create a larger error path than the input/output budget.

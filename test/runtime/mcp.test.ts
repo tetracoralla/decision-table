@@ -2,12 +2,17 @@ import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { PassThrough } from "node:stream";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { identifyRuleset } from "../../src/core/fingerprint.js";
+import {
+  createBoundedStdioTransport,
+  MCP_TRANSPORT_MAX_BUFFER_BYTES,
+} from "../../src/mcp.js";
 import { MODEL_LIMITS } from "../../src/model/schemas.js";
 import type { ConstraintRuleset } from "../../src/model/types.js";
 
@@ -196,6 +201,29 @@ describe("bundled MCP stdio runtime", () => {
     expect(called.structuredContent).toEqual({
       error: { code: "REQUEST_TOO_LARGE", message: "Request exceeds the byte limit." },
     });
+  });
+
+  it("closes the stdio carrier before buffering an oversized raw protocol message", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const transport = createBoundedStdioTransport(input, output);
+    const messages: unknown[] = [];
+    let transportError: Error | undefined;
+    transport.onmessage = (message) => messages.push(message);
+    transport.onerror = (error) => {
+      transportError = error;
+    };
+    await transport.start();
+
+    input.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(messages).toHaveLength(1);
+
+    input.write(`${" ".repeat(MCP_TRANSPORT_MAX_BUFFER_BYTES + 1)}{}\n`);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(transportError?.message).toContain("ReadBuffer exceeded maximum size");
+    expect(transportError?.message).toContain(String(MCP_TRANSPORT_MAX_BUFFER_BYTES));
+    expect(messages).toHaveLength(1);
   });
 
   it("bounds the complete MCP response envelope including its text summary", async () => {
