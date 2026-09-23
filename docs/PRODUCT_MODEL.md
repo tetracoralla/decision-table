@@ -8,6 +8,12 @@ Agent user supplies current facts or a proposed action and needs software—not
 model reasoning—to return the decision, missing facts, violations, and safe
 next repair step.
 
+An authorized construction Agent may prepare a ruleset from accepted product
+requirements and use it while implementing or diagnosing conditional behavior.
+That caller-owned translation preserves its sources and unresolved choices;
+it does not add policy generation to the deterministic tool or turn successful
+evaluation into proof that the original product goal has been delivered.
+
 ## Related flows
 
 Human flow: author JSON → validate it → run representative cases → publish or

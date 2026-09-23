@@ -1,6 +1,6 @@
 ---
 name: use-decision-table
-description: Use Decision Table for deterministic, versioned business judgments and proposed-action checks. Trigger when explicit facts must be evaluated against a decision ruleset, a candidate action must satisfy constraints, a ruleset was created or changed and needs validation, or a result must identify missing facts, conflicting rules, violations, or repair hints instead of relying on model reasoning.
+description: Use Decision Table for deterministic, versioned judgments and proposed-action checks, including while implementing or debugging permission, eligibility, priority, and other combinations of accepted rules. Evaluate explicit facts, validate a ruleset, or identify missing facts, conflicts, violations, and repair hints without manually replaying the rule logic.
 ---
 
 # Use Decision Table
@@ -18,8 +18,15 @@ rules and reproduce their logic in prose or model reasoning.
   ruleset and the user needs a read-only check. The caller still supplies the
   candidate and facts; do not describe this as enforcement.
 
-The selected tool exposes the complete current schema. Do not invent fields or
-convert prose into a ruleset unless the user asked to author policy.
+The selected tool exposes the complete current schema. During authorized
+implementation or diagnosis, reuse the owning ruleset or translate accepted
+requirements into a reviewable ruleset. Distinguish that translation from
+inventing new policy: keep its source and unresolved choices, and never guess
+facts, priorities, permissions, or intended outcomes. Ask only for an actual
+policy choice that cannot be recovered from the task's authoritative sources.
+Use decisions to guide the implementation, not merely to construct a passing
+test. A valid ruleset proves neither that its policy is complete nor that the
+product implements the resulting behavior.
 
 ## Handle the result
 
@@ -29,7 +36,8 @@ convert prose into a ruleset unless the user asked to author policy.
   authorized source and call the same tool again. Never treat missing as false.
 - On `conflict`, `invalid_ruleset`, `inactive_ruleset`, `version_mismatch`, or
   `fingerprint_mismatch`,
-  stop the governed action and ask the ruleset owner to resolve the named issue.
+  stop the governed action. Repair an incorrect translation when the owning
+  requirement resolves it; ask the owner when the policy itself is unresolved.
 - On `invalid`, do not execute the candidate. Apply a repair hint only when the
   requested change is independently authorized, then re-check.
 
